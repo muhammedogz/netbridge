@@ -93,9 +93,20 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
     return result;
   } as typeof req.end;
 
-  req.on('response', (res: httpType.IncomingMessage) => {
+  // Intercept the 'response' event at emit time — BEFORE any consumer
+  // listener runs. Consumers like axios delete `content-encoding` from
+  // res.headers synchronously in their response handler (they decompress
+  // themselves); a plain req.on('response') would observe mutated headers.
+  const origReqEmit = req.emit.bind(req);
+  req.emit = function (event: string | symbol, ...emitArgs: any[]) {
+    if (event === 'response') onResponse(emitArgs[0] as httpType.IncomingMessage);
+    return origReqEmit(event as any, ...emitArgs);
+  } as typeof req.emit;
+
+  const onResponse = (res: httpType.IncomingMessage) => {
     emitStart();
     const resBody = new BodyCollector();
+    const headersSnapshot = { ...res.headers } as Record<string, unknown>;
 
     // Tee data without disturbing stream state.
     const origEmit = res.emit.bind(res);
@@ -115,7 +126,7 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
         // Only decompress complete bodies — partial compressed data cannot be
         // decoded, so truncated compressed bodies stay base64.
         const raw = resBody.buffer();
-        const contentEncoding = String(res.headers['content-encoding'] || '');
+        const contentEncoding = String(headersSnapshot['content-encoding'] || '');
         const decoded = truncated && contentEncoding ? raw : decompressBody(raw, contentEncoding);
         encoded = encodeBody(decoded);
       }
@@ -129,7 +140,7 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
         url,
         status: res.statusCode,
         statusText: res.statusMessage,
-        resHeaders: sanitizeHeaders(res.headers as Record<string, unknown>),
+        resHeaders: sanitizeHeaders(headersSnapshot),
         resBody: encoded?.body,
         resBodyEncoding: encoded?.encoding,
         resBodyTruncated: truncated || undefined,
@@ -138,7 +149,7 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
     };
 
     res.on('error', () => finalize());
-  });
+  };
 
   req.on('error', (err: Error) => {
     emitStart();

@@ -1,0 +1,25 @@
+{
+  "name": "netbridge-example-nestjs",
+  "version": "0.0.1",
+  "private": true,
+  "description": "Minimal NestJS app demonstrating netbridge capture of HttpService (axios) and native fetch",
+  "scripts": {
+    "build": "tsc",
+    "dev": "ts-node src/main.ts",
+    "dev:netbridge": "netbridge -- ts-node src/main.ts"
+  },
+  "dependencies": {
+    "@nestjs/axios": "^4.0.0",
+    "@nestjs/common": "^11.0.0",
+    "@nestjs/core": "^11.0.0",
+    "@nestjs/platform-express": "^11.0.0",
+    "axios": "^1.7.0",
+    "reflect-metadata": "^0.2.0",
+    "rxjs": "^7.8.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.7.0"
+  }
+}

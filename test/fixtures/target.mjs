@@ -19,9 +19,12 @@ const r2 = await fetch(`${origin}/echo`, {
 });
 await r2.json();
 
-// 3) classic http.get — origin responds gzip; capture layer must decompress
+// 3) classic http.get — origin responds gzip; capture layer must decompress.
+// Simulate axios: consumers delete content-encoding from res.headers when
+// they handle decompression themselves — capture must survive that.
 await new Promise((resolve, reject) => {
   http.get(`${origin}/gzip`, (res) => {
+    delete res.headers['content-encoding'];
     const chunks = [];
     res.on('data', (c) => chunks.push(c));
     res.on('end', resolve);

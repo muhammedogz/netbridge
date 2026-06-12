@@ -46,6 +46,7 @@
   .error { color: var(--red); }
   @keyframes pulse { 50% { opacity: 0.4; } }
   .src { color: var(--fg-dim); font-size: 11px; }
+  td.seq { color: var(--fg-dim); text-align: right; width: 1%; user-select: none; }
 
   #detail { width: 0; border-left: 1px solid var(--border); background: var(--bg2); overflow-y: auto; flex-shrink: 0; transition: width 0.15s ease; }
   #detail.open { width: 46%; min-width: 380px; }
@@ -88,7 +89,7 @@
   <div id="list">
     <table>
       <thead>
-        <tr><th>method</th><th>url</th><th>status</th><th>time</th><th>size</th><th>via</th></tr>
+        <tr><th>#</th><th>method</th><th>url</th><th>status</th><th>time</th><th>size</th><th>via</th></tr>
       </thead>
       <tbody id="rows"></tbody>
     </table>
@@ -101,6 +102,7 @@
   let selectedId = null;
   let filterText = '';
   let activeTab = 'response';
+  let seqCounter = 0;
 
   const $rows = document.getElementById('rows');
   const $empty = document.getElementById('empty');
@@ -140,12 +142,19 @@
     } catch { return esc(url); }
   }
 
+  const $list = document.getElementById('list');
+  function isNearBottom() {
+    return $list.scrollHeight - $list.scrollTop - $list.clientHeight < 60;
+  }
+
   function render() {
-    const list = [...requests.values()].filter(matchesFilter).sort((a, b) => b.ts - a.ts);
+    const stick = isNearBottom();
+    const list = [...requests.values()].filter(matchesFilter).sort((a, b) => a.seq - b.seq);
     $empty.style.display = requests.size === 0 ? 'block' : 'none';
     $count.textContent = filterText ? `${list.length}/${requests.size}` : `${requests.size}`;
     $rows.innerHTML = list.map((r) => `
       <tr data-id="${esc(r.id)}" class="${r.id === selectedId ? 'selected' : ''}">
+        <td class="seq">${r.seq}</td>
         <td class="method ${esc(r.method)}">${esc(r.method)}</td>
         <td class="url" title="${esc(r.url)}">${urlCell(r.url)}</td>
         <td>${statusCell(r)}</td>
@@ -153,6 +162,7 @@
         <td>${fmtSize(r.resBody, r.resBodyEncoding)}</td>
         <td class="src">${esc(r.source || '')}${r.pid ? ` <span title="pid">#${r.pid}</span>` : ''}</td>
       </tr>`).join('');
+    if (stick) $list.scrollTop = $list.scrollHeight;
   }
 
   // --- body helpers ---------------------------------------------------------
@@ -319,11 +329,17 @@
       if (v !== undefined && k !== 'phase') existing[k] = v;
     }
     existing.state = e.phase === 'error' ? 'error' : e.phase === 'end' ? 'done' : existing.state || 'pending';
+    if (!existing.seq) existing.seq = ++seqCounter;
     requests.set(e.id, existing);
   }
 
   function applySnapshot(list) {
-    for (const r of list) requests.set(r.id, r);
+    // Snapshot arrives in server insertion order — number it sequentially.
+    for (const r of list) {
+      const existing = requests.get(r.id);
+      Object.assign(r, { seq: existing?.seq ?? ++seqCounter });
+      requests.set(r.id, r);
+    }
   }
 
   let renderQueued = false;
@@ -354,6 +370,7 @@
     await fetch('/api/clear', { method: 'POST' });
     requests.clear();
     selectedId = null;
+    seqCounter = 0;
     render();
     renderDetail();
   });
@@ -376,7 +393,7 @@
     es.onopen = () => $live.classList.add('on');
     es.onerror = () => { $live.classList.remove('on'); };
     es.addEventListener('snapshot', (ev) => { applySnapshot(JSON.parse(ev.data)); queueRender(); });
-    es.addEventListener('clear', () => { requests.clear(); selectedId = null; queueRender(); });
+    es.addEventListener('clear', () => { requests.clear(); selectedId = null; seqCounter = 0; queueRender(); });
     es.onmessage = (ev) => { applyEvent(JSON.parse(ev.data)); queueRender(); };
   }
 

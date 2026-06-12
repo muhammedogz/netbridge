@@ -13,18 +13,30 @@ const $ui = document.getElementById('ui');
 let connectedPort = null;
 let scanning = false;
 
-async function probe(port) {
+async function fetchJson(url, timeoutMs) {
   const ctrl = new AbortController();
-  const t = setTimeout(() => ctrl.abort(), 400);
+  const t = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
-    const res = await fetch(`http://127.0.0.1:${port}/api/health`, { signal: ctrl.signal });
-    const data = await res.json();
-    return data && data.app === 'netbridge' ? port : null;
+    const res = await fetch(url, { signal: ctrl.signal });
+    if (!res.ok) return undefined;
+    return await res.json();
   } catch {
-    return null;
+    return undefined;
   } finally {
     clearTimeout(t);
   }
+}
+
+async function probe(port) {
+  // netbridge >= 0.1.2 identifies itself explicitly.
+  const health = await fetchJson(`http://127.0.0.1:${port}/api/health`, 400);
+  if (health && health.app === 'netbridge') return port;
+  if (health !== undefined) return null; // some other app answered — not ours
+
+  // Fallback for older collectors (0.1.0/0.1.1) without /api/health:
+  // they expose /api/requests returning a JSON array.
+  const requests = await fetchJson(`http://127.0.0.1:${port}/api/requests`, 400);
+  return Array.isArray(requests) ? port : null;
 }
 
 async function scan() {

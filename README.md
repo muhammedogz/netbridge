@@ -96,8 +96,16 @@ CLI flags: `--port <n>` to pick the UI port (auto-increments if busy).
 - `POST /api/clear` — reset the buffer
 - `GET /events` — SSE stream (snapshot + live events)
 
+## Scope: wire truth, outbound only
+
+netbridge shows **actual outbound network traffic** — bytes that left your server. Two consequences worth knowing:
+
+- **Framework lifecycle isn't here.** OTel-style spans (page render, route resolution) are internal framework timings, not network — use tracing for those. netbridge stays focused on "what did my server send, and what came back".
+- **Cache hits show nothing — correctly.** When Next.js serves a fetch from its cache (ISR / fetch cache), no request hits the wire, so nothing appears. If you see fewer requests than your code makes, your cache is working.
+
 ## Limitations (v1)
 
+- Inbound requests (browser → your server) are not captured — browser DevTools already shows that side. (An `--inbound` flag is on the roadmap.)
 - Edge runtime isn't Node — not captured (Next.js Edge middleware/functions).
 - Raw `undici.request()` / `undici.Client` calls bypass the fetch wrapper (rare; most apps use fetch or http-based clients).
 - `FormData` / stream request bodies are not captured (response side still is).

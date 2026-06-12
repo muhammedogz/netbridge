@@ -132,8 +132,59 @@ if (assetPath) {
 const evil = await fetch(`http://127.0.0.1:${NB_PORT}/..%2f..%2fpackage.json`);
 assert(evil.status === 404, 'path traversal rejected');
 
+// --- port collision: when the port is busy, the instance must report and ---
+// --- use its real (incremented) port — events must not leak to the blocker --
+const BLOCKED_PORT = 4531;
+let leakedIngests = 0;
+const blocker = http.createServer((req, res) => {
+  if (req.url === '/ingest') leakedIngests += 1;
+  res.writeHead(204).end();
+});
+await new Promise((r) => blocker.listen(BLOCKED_PORT, '127.0.0.1', r));
+
+const childB = spawn(
+  process.execPath,
+  [CLI, '--port', String(BLOCKED_PORT), '--', process.execPath, TARGET],
+  {
+    env: { ...process.env, TARGET_ORIGIN_PORT: String(originPort), NETBRIDGE_QUIET: '1' },
+    stdio: ['ignore', 'pipe', 'pipe'],
+  }
+);
+let outB = '';
+childB.stdout.on('data', (c) => (outB += c));
+
+let portB = null;
+for (let i = 0; i < 50; i++) {
+  await new Promise((r) => setTimeout(r, 100));
+  const m = outB.match(/http:\/\/localhost:(\d+)/);
+  if (m) {
+    portB = Number(m[1]);
+    break;
+  }
+}
+assert(portB !== null, 'collision: instance prints a UI url');
+assert(portB !== BLOCKED_PORT, `collision: printed url uses the real port (got ${portB})`);
+
+let capturedB = null;
+for (let i = 0; i < 50; i++) {
+  await new Promise((r) => setTimeout(r, 200));
+  try {
+    const list = await (await fetch(`http://127.0.0.1:${portB}/api/requests`)).json();
+    if (list.length >= 4) {
+      capturedB = list;
+      break;
+    }
+  } catch {
+    /* not up yet */
+  }
+}
+assert(!!capturedB, 'collision: events arrive at the instance own collector');
+assert(leakedIngests === 0, 'collision: no events leaked to the busy port');
+if (childB.exitCode === null) await new Promise((r) => childB.on('exit', r));
+blocker.close();
+
 // --- teardown -------------------------------------------------------------
-await new Promise((r) => child.on('exit', r));
+if (child.exitCode === null) await new Promise((r) => child.on('exit', r));
 origin.close();
 
 console.log(failures === 0 ? '\nall assertions passed' : `\n${failures} assertion(s) FAILED`);

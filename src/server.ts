@@ -146,20 +146,29 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     let attempts = 0;
     const tryListen = (port: number) => {
       attempts += 1;
-      server.once('error', (err: NodeJS.ErrnoException) => {
+      // Pair the handlers and detach the loser: a stale 'listening' callback
+      // from a failed attempt must never resolve with the busy port number.
+      const onError = (err: NodeJS.ErrnoException) => {
+        server.removeListener('listening', onListening);
         if (err.code === 'EADDRINUSE' && attempts < 20) {
           tryListen(port + 1);
         } else {
           reject(err);
         }
-      });
-      server.listen(port, '127.0.0.1', () => {
-        server.removeAllListeners('error');
+      };
+      const onListening = () => {
+        server.removeListener('error', onError);
+        const address = server.address();
+        const actualPort =
+          address && typeof address === 'object' ? address.port : port;
         resolve({
-          port,
+          port: actualPort,
           close: () => server.close(),
         });
-      });
+      };
+      server.once('error', onError);
+      server.once('listening', onListening);
+      server.listen(port, '127.0.0.1');
     };
     tryListen(preferredPort);
   });

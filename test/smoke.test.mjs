@@ -119,6 +119,19 @@ const ui = await fetch(`http://127.0.0.1:${NB_PORT}/`);
 const uiHtml = await ui.text();
 assert(ui.status === 200 && uiHtml.includes('netbridge'), 'web UI served at /');
 
+// Vite-built assets are served with correct content types
+const assetPath = (uiHtml.match(/src="(\/assets\/[^"]+\.js)"/) || [])[1];
+assert(!!assetPath, 'index.html references a built JS asset');
+if (assetPath) {
+  const asset = await fetch(`http://127.0.0.1:${NB_PORT}${assetPath}`);
+  assert(asset.status === 200, 'JS asset served');
+  assert((asset.headers.get('content-type') || '').includes('javascript'), 'JS asset content-type');
+}
+
+// path traversal is rejected
+const evil = await fetch(`http://127.0.0.1:${NB_PORT}/..%2f..%2fpackage.json`);
+assert(evil.status === 404, 'path traversal rejected');
+
 // --- teardown -------------------------------------------------------------
 await new Promise((r) => child.on('exit', r));
 origin.close();

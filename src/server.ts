@@ -30,7 +30,32 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
   const merged = new Map<string, MergedRequest>();
   const sseClients = new Set<http.ServerResponse>();
 
-  const uiPath = path.join(__dirname, '..', 'ui', 'index.html');
+  const uiDir = path.join(__dirname, '..', 'ui');
+  const MIME: Record<string, string> = {
+    '.html': 'text/html; charset=utf-8',
+    '.js': 'text/javascript; charset=utf-8',
+    '.css': 'text/css; charset=utf-8',
+    '.svg': 'image/svg+xml',
+    '.ico': 'image/x-icon',
+    '.map': 'application/json',
+    '.json': 'application/json',
+  };
+
+  function serveStatic(urlPath: string, res: http.ServerResponse): boolean {
+    const clean = urlPath.split('?')[0];
+    const rel = clean === '/' ? 'index.html' : clean.replace(/^\/+/, '');
+    const file = path.normalize(path.join(uiDir, rel));
+    if (!file.startsWith(uiDir)) return false; // no traversal
+    try {
+      const content = fs.readFileSync(file);
+      const ext = path.extname(file).toLowerCase();
+      res.writeHead(200, { 'content-type': MIME[ext] || 'application/octet-stream' });
+      res.end(content);
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   function record(event: NetbridgeEvent): void {
     events.push(event);
@@ -106,15 +131,12 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
       return;
     }
 
-    if (req.method === 'GET' && (url === '/' || url.startsWith('/?'))) {
-      try {
-        const html = fs.readFileSync(uiPath);
-        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-        res.end(html);
-      } catch {
-        res.writeHead(500).end('netbridge UI not found — was the package built?');
+    if (req.method === 'GET') {
+      if (serveStatic(url, res)) return;
+      if (url === '/' || url.startsWith('/?')) {
+        res.writeHead(500).end('netbridge UI not found — was the package built? (pnpm build)');
+        return;
       }
-      return;
     }
 
     res.writeHead(404).end('not found');

@@ -1,5 +1,8 @@
 # netbridge
 
+[![CI](https://github.com/muhammedogz/netbridge/actions/workflows/ci.yml/badge.svg)](https://github.com/muhammedogz/netbridge/actions/workflows/ci.yml)
+[![npm](https://img.shields.io/npm/v/netbridge)](https://www.npmjs.com/package/netbridge)
+
 **The network tab your server never had.**
 
 Browser DevTools can't see server-side HTTP traffic. When your Next.js Server Component, Route Handler, or Express backend calls an API, that request is invisible — no network tab, no bodies, no timing. netbridge gives you one, with **zero code changes**:

@@ -1,0 +1,43 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: build & test (node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        node: [18, 20, 22, 24]
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        # version comes from the packageManager field in package.json
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: pnpm
+
+      - name: Install
+        run: pnpm install --frozen-lockfile
+
+      - name: Build (cli + ui)
+        run: pnpm build
+
+      - name: Smoke test (28 assertions, no network needed)
+        run: pnpm test
+
+      - name: Verify npm tarball contents
+        run: |
+          npm pack --dry-run 2>&1 | tee pack.txt
+          grep -q "dist/cli.js" pack.txt
+          grep -q "dist/preload.js" pack.txt
+          grep -q "ui/index.html" pack.txt
+          grep -q "ui/assets/" pack.txt
+          echo "tarball contents ok"

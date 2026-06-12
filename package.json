@@ -18,7 +18,7 @@
   "author": "Muhammed Oguz <muhammed0748@outlook.com>",
   "repository": {
     "type": "git",
-    "url": "https://github.com/muhammedogz/netbridge.git"
+    "url": "git+https://github.com/muhammedogz/netbridge.git"
   },
   "type": "commonjs",
   "bin": {

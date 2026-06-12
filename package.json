@@ -1,0 +1,47 @@
+{
+  "name": "netbridge",
+  "version": "0.1.0",
+  "description": "The network tab your server never had. Zero-config inspector for server-side HTTP traffic (fetch, axios, ky, got) in Next.js and any Node.js app — bodies included.",
+  "keywords": [
+    "debug",
+    "devtools",
+    "network",
+    "http",
+    "proxy",
+    "inspector",
+    "nextjs",
+    "fetch",
+    "axios",
+    "server-side"
+  ],
+  "license": "MIT",
+  "author": "Muhammed Oguz <muhammed0748@outlook.com>",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/muhammedogz/netbridge.git"
+  },
+  "type": "commonjs",
+  "bin": {
+    "netbridge": "dist/cli.js"
+  },
+  "main": "dist/preload.js",
+  "files": [
+    "dist",
+    "ui",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "prepublishOnly": "npm run build",
+    "test": "node test/smoke.test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.7.0"
+  }
+}

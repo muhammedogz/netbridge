@@ -1,13 +1,12 @@
 import { useMemo, useRef, useState } from 'react';
 import { useRequests } from './useRequests';
-import { useTheme } from './useTheme';
 import { RequestTable } from './components/RequestTable';
+import { ThemeToggle } from './components/ThemeToggle';
 import { DetailPane } from './components/DetailPane';
 import { downloadBlob } from './lib';
 
 export function App() {
   const { requests, live, clearAll } = useRequests();
-  const { theme, toggle } = useTheme();
   const [filterText, setFilterText] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [exportFlash, setExportFlash] = useState(false);
@@ -69,9 +68,7 @@ export function App() {
         >
           clear
         </button>
-        <button onClick={toggle} title="toggle color theme">
-          {theme === 'dark' ? 'light' : 'dark'}
-        </button>
+        <ThemeToggle />
       </header>
       <main>
         <RequestTable

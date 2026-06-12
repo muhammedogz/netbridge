@@ -37,6 +37,8 @@ header h1 span { color: var(--fg-dim); font-weight: 400; }
 button { background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-family: var(--mono); font-size: 12px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button.flash { border-color: var(--green); color: var(--green); }
+button.theme { display: inline-flex; align-items: center; padding: 5px 8px; }
+button.theme svg { width: 14px; height: 14px; display: block; }
 
 main { flex: 1; display: flex; min-height: 0; }
 #list { flex: 1; overflow-y: auto; min-width: 0; }

@@ -1,6 +1,6 @@
 {
   "name": "netbridge",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "The network tab your server never had. Zero-config inspector for server-side HTTP traffic (fetch, axios, ky, got) in Next.js and any Node.js app — bodies included.",
   "keywords": [
     "debug",

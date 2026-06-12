@@ -39,6 +39,7 @@
     "build:cli": "tsc",
     "build:ui": "vite build --config ui-src/vite.config.ts",
     "dev:ui": "vite --config ui-src/vite.config.ts",
+    "prepack": "npm run build",
     "prepublishOnly": "npm run build",
     "test": "node test/smoke.test.mjs"
   },

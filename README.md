@@ -90,6 +90,13 @@ netbridge -- next dev
 
 CLI flags: `--port <n>` to pick the UI port (auto-increments if busy).
 
+## DevTools extension (optional)
+
+Prefer living inside DevTools? `extension/` ships a Chrome DevTools panel
+(like React DevTools) that auto-discovers your running collector and shows the
+netbridge UI next to the browser's Network tab — client and server traffic in
+one window. See [extension/README.md](extension/README.md) for install steps.
+
 ## Endpoints (for scripts / agents)
 
 - `GET /api/requests` — JSON dump of captured requests

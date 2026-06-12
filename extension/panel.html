@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <link rel="stylesheet" href="panel.css" />
+    <title>netbridge</title>
+  </head>
+  <body>
+    <div id="connect" class="connect">
+      <div class="card">
+        <h1>netbridge</h1>
+        <p id="status">looking for a running collector…</p>
+        <pre>npx netbridge -- next dev</pre>
+        <p class="dim">
+          start your app through netbridge, then this panel connects automatically.
+        </p>
+        <div class="row">
+          <input id="port" type="number" min="1" max="65535" placeholder="port (default 4499)" />
+          <button id="retry">retry</button>
+        </div>
+      </div>
+    </div>
+    <iframe id="ui" title="netbridge UI" hidden></iframe>
+    <script src="panel.js"></script>
+  </body>
+</html>

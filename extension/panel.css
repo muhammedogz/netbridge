@@ -1,0 +1,30 @@
+/* Theme tokens — kept in sync with ui-src/src/styles.css */
+:root {
+  color-scheme: dark light;
+  --bg: #0d1117; --bg2: #161b22; --border: #2d333b;
+  --fg: #c9d1d9; --fg-dim: #768390; --accent: #58a6ff; --code: #a5d6ff;
+  --mono: ui-monospace, 'SF Mono', 'Cascadia Code', Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: light) {
+  :root {
+    --bg: #ffffff; --bg2: #f6f8fa; --border: #d0d7de;
+    --fg: #1f2328; --fg-dim: #59636e; --accent: #0969da; --code: #0a3069;
+  }
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 12px; }
+
+.connect { height: 100%; display: flex; align-items: center; justify-content: center; }
+.card { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 28px 32px; max-width: 440px; text-align: center; }
+.card h1 { font-size: 16px; color: var(--accent); margin-bottom: 10px; }
+.card p { margin: 8px 0; }
+.card .dim { color: var(--fg-dim); }
+.card pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px; padding: 10px; margin: 12px 0; color: var(--code); text-align: left; }
+.row { display: flex; gap: 8px; justify-content: center; margin-top: 14px; }
+input, button { background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 6px 10px; font-family: var(--mono); font-size: 12px; }
+button { cursor: pointer; }
+button:hover, input:focus { border-color: var(--accent); outline: none; }
+
+#ui { width: 100%; height: 100%; border: 0; display: block; }

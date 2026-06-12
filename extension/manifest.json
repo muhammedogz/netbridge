@@ -1,0 +1,8 @@
+{
+  "manifest_version": 3,
+  "name": "netbridge DevTools",
+  "version": "0.1.0",
+  "description": "Adds a netbridge panel to DevTools — the network tab your server never had. Requires a running `netbridge` CLI (npm i -g netbridge).",
+  "devtools_page": "devtools.html",
+  "host_permissions": ["http://localhost/*", "http://127.0.0.1/*"]
+}

@@ -128,6 +128,11 @@ if (assetPath) {
   assert((asset.headers.get('content-type') || '').includes('javascript'), 'JS asset content-type');
 }
 
+// health/discovery endpoint (used by the DevTools extension port scan)
+const health = await (await fetch(`http://127.0.0.1:${NB_PORT}/api/health`)).json();
+assert(health.app === 'netbridge', 'health endpoint identifies as netbridge');
+assert(typeof health.version === 'string' && health.version.length > 0, 'health endpoint reports version');
+
 // path traversal is rejected
 const evil = await fetch(`http://127.0.0.1:${NB_PORT}/..%2f..%2fpackage.json`);
 assert(evil.status === 404, 'path traversal rejected');

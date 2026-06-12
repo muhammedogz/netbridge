@@ -116,6 +116,21 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
       return;
     }
 
+    if (req.method === 'GET' && url === '/api/health') {
+      // Discovery endpoint: lets the DevTools extension (and scripts) find a
+      // running netbridge collector by scanning localhost ports.
+      let version = '0.0.0';
+      try {
+        // package.json ships in the npm tarball next to dist/.
+        version = require(path.join(__dirname, '..', 'package.json')).version;
+      } catch {
+        /* keep default */
+      }
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ app: 'netbridge', version, requests: merged.size }));
+      return;
+    }
+
     if (req.method === 'GET' && url === '/api/requests') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify([...merged.values()]));

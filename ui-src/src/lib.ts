@@ -71,6 +71,144 @@ export function bodyFilename(
   return `netbridge-${kind}-${host}-${r.id}.${ext}`;
 }
 
+// ---------------------------------------------------------------------------
+// "Copy whole request" formatters — Markdown (beautiful, shareable) and JSON.
+// Two scopes: essentials (url + bodies) and everything (+ headers + metadata).
+// ---------------------------------------------------------------------------
+
+function bodyBytes(body?: string, encoding?: string): number {
+  if (!body) return 0;
+  return encoding === 'base64' ? Math.floor((body.length * 3) / 4) : new Blob([body]).size;
+}
+
+/** Pretty body text + a markdown fence language hint. */
+function bodyForMarkdown(
+  body?: string,
+  encoding?: string,
+  headers?: Record<string, string>
+): { text: string; lang: string } | { note: string } {
+  if (body == null) return { note: '_(no body captured)_' };
+  if (encoding === 'base64') {
+    return { note: `_binary body (base64, ${fmtSize(body, encoding)}) — use download to save_` };
+  }
+  const pretty = displayBody(body, encoding) ?? body;
+  const ct = String(headers?.['content-type'] || '');
+  let lang = '';
+  try {
+    JSON.parse(body);
+    lang = 'json';
+  } catch {
+    lang = ct.includes('html') ? 'html' : ct.includes('xml') ? 'xml' : '';
+  }
+  return { text: pretty, lang };
+}
+
+/** Fence that won't collide with backticks inside the body. */
+function fenceFor(text: string): string {
+  let fence = '```';
+  while (text.includes(fence)) fence += '`';
+  return fence;
+}
+
+function mdBodySection(
+  title: string,
+  body?: string,
+  encoding?: string,
+  truncated?: boolean,
+  headers?: Record<string, string>
+): string {
+  const formatted = bodyForMarkdown(body, encoding, headers);
+  if ('note' in formatted) return `### ${title}\n${formatted.note}\n`;
+  const fence = fenceFor(formatted.text);
+  const trunc = truncated ? ' _(truncated)_' : '';
+  return `### ${title}${trunc}\n${fence}${formatted.lang}\n${formatted.text}\n${fence}\n`;
+}
+
+function mdHeaders(title: string, headers?: Record<string, string>): string {
+  const text = headersText(headers);
+  if (!text) return `### ${title}\n_(none)_\n`;
+  return `### ${title}\n\`\`\`\n${text}\n\`\`\`\n`;
+}
+
+export function formatRequestMarkdown(r: CapturedRequest, full: boolean): string {
+  const statusLine =
+    r.state === 'error'
+      ? `**ERROR** — ${r.error || 'request failed'}`
+      : r.state !== 'done'
+        ? '_(pending)_'
+        : `**${r.status ?? '?'}${r.statusText ? ' ' + r.statusText : ''}**`;
+  const meta = [
+    r.durationMs != null ? `${r.durationMs} ms` : null,
+    r.source || null,
+  ].filter(Boolean);
+
+  const parts: string[] = [];
+  parts.push(`${r.method} ${r.url}`);
+  parts.push(`${statusLine}${meta.length ? ' · ' + meta.join(' · ') : ''}\n`);
+
+  if (full) parts.push(mdHeaders('Request headers', r.reqHeaders));
+  parts.push(mdBodySection('Request body', r.reqBody, r.reqBodyEncoding, r.reqBodyTruncated, r.reqHeaders));
+  if (full) parts.push(mdHeaders('Response headers', r.resHeaders));
+  parts.push(mdBodySection('Response body', r.resBody, r.resBodyEncoding, r.resBodyTruncated, r.resHeaders));
+
+  if (full) {
+    const metaLines = [
+      r.pid != null ? `- pid: ${r.pid}` : null,
+      r.seq != null ? `- seq: ${r.seq}` : null,
+      r.ts != null ? `- time: ${new Date(r.ts).toISOString()}` : null,
+      r.reqBodyEncoding ? `- request body encoding: ${r.reqBodyEncoding}` : null,
+      r.resBodyEncoding ? `- response body encoding: ${r.resBodyEncoding}` : null,
+    ].filter(Boolean);
+    if (metaLines.length) parts.push(`### Meta\n${metaLines.join('\n')}\n`);
+  }
+
+  return parts.join('\n').trimEnd() + '\n';
+}
+
+/** Parse a captured body into a JSON-friendly value (object when JSON). */
+function bodyForJson(body?: string, encoding?: string): unknown {
+  if (body == null) return undefined;
+  if (encoding === 'base64') return { binary: true, base64: body, bytes: bodyBytes(body, encoding) };
+  try {
+    return JSON.parse(body);
+  } catch {
+    return body;
+  }
+}
+
+export function formatRequestJSON(r: CapturedRequest, full: boolean): string {
+  const out: Record<string, unknown> = {
+    method: r.method,
+    url: r.url,
+    status: r.status,
+    durationMs: r.durationMs,
+    request: { body: bodyForJson(r.reqBody, r.reqBodyEncoding) },
+    response: { body: bodyForJson(r.resBody, r.resBodyEncoding) },
+  };
+  if (r.state === 'error' && r.error) out.error = r.error;
+
+  if (full) {
+    out.statusText = r.statusText;
+    out.source = r.source;
+    out.pid = r.pid;
+    out.seq = r.seq;
+    out.ts = r.ts;
+    out.request = {
+      headers: r.reqHeaders,
+      body: bodyForJson(r.reqBody, r.reqBodyEncoding),
+      bodyEncoding: r.reqBodyEncoding,
+      bodyTruncated: r.reqBodyTruncated,
+    };
+    out.response = {
+      headers: r.resHeaders,
+      body: bodyForJson(r.resBody, r.resBodyEncoding),
+      bodyEncoding: r.resBodyEncoding,
+      bodyTruncated: r.resBodyTruncated,
+    };
+  }
+  return JSON.stringify(out, null, 2);
+}
+
 export function downloadBody(r: CapturedRequest, kind: 'request' | 'response'): void {
   const body = kind === 'response' ? r.resBody : r.reqBody;
   const encoding = kind === 'response' ? r.resBodyEncoding : r.reqBodyEncoding;

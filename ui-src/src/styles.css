@@ -80,6 +80,18 @@ td.seq { color: var(--fg-dim); text-align: right; width: 1%; user-select: none; 
 .iconbtn:hover { color: var(--fg); border-color: var(--accent); }
 .iconbtn.flash { border-color: var(--green); color: var(--green); }
 
+/* detail metadata row: keep badges + action buttons tidy when wrapping */
+#detail .inner > div:nth-of-type(1) { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 6px; }
+#detail .inner > div:nth-of-type(1) .badge { margin-left: 0; }
+
+/* split copy button + dropdown */
+.copymenu { position: relative; display: inline-flex; }
+.copymenu-main { border-top-right-radius: 0; border-bottom-right-radius: 0; }
+.copymenu-caret { border-left: 0; border-top-left-radius: 0; border-bottom-left-radius: 0; padding: 2px 6px; }
+.copymenu-pop { position: absolute; top: calc(100% + 4px); left: 0; z-index: 10; min-width: 190px; background: var(--bg2); border: 1px solid var(--border); border-radius: 6px; padding: 4px; box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35); display: flex; flex-direction: column; gap: 2px; }
+.copymenu-pop button { text-align: left; background: transparent; color: var(--fg); border: 0; border-radius: 4px; padding: 6px 10px; font-family: var(--mono); font-size: 12px; cursor: pointer; }
+.copymenu-pop button:hover { background: var(--bg3); color: var(--accent); }
+
 .kv { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 2px 12px; }
 .kv .k { color: var(--purple); word-break: break-all; }
 .kv .v { color: var(--fg); word-break: break-all; }

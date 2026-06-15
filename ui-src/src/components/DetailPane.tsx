@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { CapturedRequest } from '../types';
 import { displayBody, downloadBlob, downloadBody, headersText } from '../lib';
 import { CopyButton } from './CopyButton';
+import { CopyMenu } from './CopyMenu';
 import { StatusBadge } from './StatusBadge';
 
 type Kind = 'response' | 'request';
@@ -89,9 +90,9 @@ export function DetailPane({ r, onClose }: { r: CapturedRequest | null; onClose:
             {r.durationMs != null && <span className="badge">{r.durationMs} ms</span>}
             <span className="badge">{r.source || ''}</span>
             {r.pid != null && <span className="badge">pid {r.pid}</span>}
+            <CopyMenu r={r} />
             <button
               className="iconbtn"
-              style={{ marginLeft: 6 }}
               title="download this entry as JSON"
               onClick={() =>
                 downloadBlob(

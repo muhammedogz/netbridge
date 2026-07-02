@@ -1,8 +1,35 @@
 import type { CapturedRequest } from './types';
 
+/**
+ * Exact UTF-8 byte length without allocating a Blob/TextEncoder per call.
+ * fmtSize is mapped over every row on every render, so `new Blob([body]).size`
+ * churned (and GC'd) a Blob per cell per frame; this is allocation-free and
+ * returns the same byte count.
+ */
+function utf8ByteLength(s: string): number {
+  let bytes = 0;
+  for (let i = 0; i < s.length; i++) {
+    const c = s.charCodeAt(i);
+    if (c < 0x80) bytes += 1;
+    else if (c < 0x800) bytes += 2;
+    else if (c >= 0xd800 && c <= 0xdbff && i + 1 < s.length) {
+      const next = s.charCodeAt(i + 1);
+      if (next >= 0xdc00 && next <= 0xdfff) {
+        bytes += 4;
+        i++;
+      } else {
+        bytes += 3;
+      }
+    } else {
+      bytes += 3;
+    }
+  }
+  return bytes;
+}
+
 export function fmtSize(body?: string, encoding?: string): string {
   if (!body) return '';
-  const bytes = encoding === 'base64' ? Math.floor((body.length * 3) / 4) : new Blob([body]).size;
+  const bytes = encoding === 'base64' ? Math.floor((body.length * 3) / 4) : utf8ByteLength(body);
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1048576) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1048576).toFixed(1)} MB`;
@@ -78,7 +105,7 @@ export function bodyFilename(
 
 function bodyBytes(body?: string, encoding?: string): number {
   if (!body) return 0;
-  return encoding === 'base64' ? Math.floor((body.length * 3) / 4) : new Blob([body]).size;
+  return encoding === 'base64' ? Math.floor((body.length * 3) / 4) : utf8ByteLength(body);
 }
 
 /** Pretty body text + a markdown fence language hint. */

@@ -19,7 +19,7 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
-  const flashTimer = useRef<ReturnType<typeof setTimeout>>();
+  const flashTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   useEffect(() => {
     if (!open) return;
@@ -36,6 +36,9 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  // Clear a pending flash-reset timer if the menu unmounts (selection change).
+  useEffect(() => () => clearTimeout(flashTimer.current), []);
 
   const doCopy = async (item: MenuItem) => {
     await copyText(item.build(r));

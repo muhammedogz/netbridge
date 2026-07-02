@@ -78,31 +78,59 @@ async function captureRequestBody(
 }
 
 function captureResponseBody(response: Response, id: string, base: Record<string, unknown>): void {
+  const finishEmpty = () => emit({ ...(base as any), id, phase: 'end', ts: Date.now() });
+  const finish = (collector: BodyCollector) => {
+    if (collector.isEmpty) return finishEmpty();
+    const { body, encoding } = encodeBody(collector.buffer());
+    emit({
+      ...(base as any),
+      id,
+      phase: 'end',
+      ts: Date.now(),
+      resBody: body,
+      resBodyEncoding: encoding,
+      resBodyTruncated: collector.truncated || undefined,
+    });
+  };
+
+  let clone: Response;
   try {
-    const clone = response.clone();
-    clone
-      .arrayBuffer()
-      .then((ab) => {
-        const buf = Buffer.from(ab);
-        const collector = new BodyCollector();
-        collector.push(buf);
-        const { body, encoding } = encodeBody(collector.buffer());
-        emit({
-          ...(base as any),
-          id,
-          phase: 'end',
-          ts: Date.now(),
-          resBody: collector.isEmpty ? undefined : body,
-          resBodyEncoding: collector.isEmpty ? undefined : encoding,
-          resBodyTruncated: collector.truncated || buf.length > config.bodyLimit,
-        });
-      })
-      .catch(() => {
-        emit({ ...(base as any), id, phase: 'end', ts: Date.now() });
-      });
+    clone = response.clone();
   } catch {
-    emit({ ...(base as any), id, phase: 'end', ts: Date.now() });
+    return finishEmpty();
   }
+
+  // Stream the cloned body and stop once the cap is hit, cancelling the rest,
+  // so a large download is never buffered whole into the host app's memory
+  // (arrayBuffer() would read it all before we could truncate it).
+  const stream = clone.body;
+  if (stream && typeof stream.getReader === 'function') {
+    const collector = new BodyCollector();
+    const reader = stream.getReader();
+    const pump = (): Promise<void> =>
+      reader.read().then(({ done, value }) => {
+        if (done) return finish(collector);
+        collector.push(value);
+        if (collector.truncated) {
+          reader.cancel().catch(() => {});
+          return finish(collector);
+        }
+        return pump();
+      });
+    // On a mid-stream error, emit whatever partial body we managed to collect.
+    pump().catch(() => finish(collector));
+    return;
+  }
+
+  // Fallback for environments without a web ReadableStream body.
+  clone
+    .arrayBuffer()
+    .then((ab) => {
+      const collector = new BodyCollector();
+      collector.push(Buffer.from(ab));
+      finish(collector);
+    })
+    .catch(finishEmpty);
 }
 
 export function patchFetch(): void {

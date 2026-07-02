@@ -82,12 +82,17 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
   // Collect request body chunks.
   const origWrite = req.write.bind(req);
   const origEnd = req.end.bind(req);
+  // write(chunk[, encoding][, callback]) / end([chunk[, encoding]][, callback]):
+  // the encoding is only meaningful for string chunks, and is the first rest arg
+  // when it is a string (a function there is the callback).
   req.write = function (chunk: any, ...rest: any[]) {
-    reqBody.push(chunk);
+    reqBody.push(chunk, typeof rest[0] === 'string' ? rest[0] : undefined);
     return origWrite(chunk, ...rest);
   } as typeof req.write;
   req.end = function (chunk?: any, ...rest: any[]) {
-    if (chunk !== undefined && typeof chunk !== 'function') reqBody.push(chunk);
+    if (chunk !== undefined && typeof chunk !== 'function') {
+      reqBody.push(chunk, typeof rest[0] === 'string' ? rest[0] : undefined);
+    }
     const result = origEnd(chunk, ...rest);
     emitStart();
     return result;
@@ -149,6 +154,11 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
     };
 
     res.on('error', () => finalize());
+    // A response the consumer never reads (no 'data'/'end') — or one that is
+    // aborted mid-stream — would otherwise never finalize, leaving the request
+    // stuck 'pending' forever. 'close' always fires; finalize is idempotent.
+    res.on('aborted', () => finalize());
+    res.on('close', () => finalize());
   };
 
   req.on('error', (err: Error) => {

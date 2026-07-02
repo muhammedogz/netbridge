@@ -45,6 +45,14 @@ await new Promise((resolve, reject) => {
   req.end(JSON.stringify({ hello: 'from-http', n: 7 }));
 });
 
+// 5) fetch whose connection the origin drops mid-flight — the capture layer
+// must record this as a terminal error event (state:'error'), not hang.
+try {
+  await fetch(`${origin}/boom`);
+} catch {
+  // expected: the origin destroys the socket before responding.
+}
+
 console.log('[target] all requests done');
 // Give the collector time to be queried by the test before this process exits.
 await delay(2500);

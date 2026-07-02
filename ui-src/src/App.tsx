@@ -10,7 +10,7 @@ export function App() {
   const [filterText, setFilterText] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [exportFlash, setExportFlash] = useState(false);
-  const exportTimer = useRef<ReturnType<typeof setTimeout>>();
+  const exportTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
   const filtered = useMemo(() => {
     if (!filterText) return requests;
@@ -48,7 +48,7 @@ export function App() {
           type="text"
           placeholder="filter by url, method, status…"
           value={filterText}
-          onChange={(e) => setFilterText(e.target.value.trim())}
+          onChange={(e) => setFilterText(e.target.value)}
         />
         <span id="count">
           {filterText ? `${filtered.length}/${requests.length}` : requests.length}

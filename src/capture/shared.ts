@@ -104,15 +104,19 @@ export class BodyCollector {
   private size = 0;
   truncated = false;
 
-  push(chunk: unknown): void {
+  push(chunk: unknown, encoding?: string): void {
     if (this.size >= config.bodyLimit) {
       this.truncated = true;
       return;
     }
     let buf: Buffer | null = null;
     if (Buffer.isBuffer(chunk)) buf = chunk;
-    else if (typeof chunk === 'string') buf = Buffer.from(chunk);
-    else if (chunk instanceof Uint8Array) buf = Buffer.from(chunk);
+    else if (typeof chunk === 'string') {
+      // Honor the stream write encoding (hex/base64/latin1/…) so a non-utf8
+      // string body is captured as its real bytes instead of mojibake.
+      const enc = (encoding && Buffer.isEncoding(encoding) ? encoding : 'utf8') as BufferEncoding;
+      buf = Buffer.from(chunk, enc);
+    } else if (chunk instanceof Uint8Array) buf = Buffer.from(chunk);
     if (!buf) return;
     const remaining = config.bodyLimit - this.size;
     if (buf.length > remaining) {
@@ -148,15 +152,20 @@ export function isOwnTraffic(url: string): boolean {
 // (unpatched) http.request so telemetry is invisible to the capture layer.
 // ---------------------------------------------------------------------------
 
+// Bound the in-memory backlog: if the collector is gone or the host event loop
+// is starved (so the flush timer can't run), the queue must not grow without
+// limit and OOM the host app. flush() drains fully every ~20ms in the happy
+// path, so this cap is only ever hit under genuine backpressure.
+const MAX_QUEUE = 10_000;
 let queue: NetbridgeEvent[] = [];
 let flushTimer: NodeJS.Timeout | null = null;
 
-function flush(): void {
-  flushTimer = null;
-  if (queue.length === 0 || !config.port) return;
-  const batch = queue;
-  queue = [];
-  const payload = batch.map((e) => JSON.stringify(e)).join('\n');
+// Keep each POST well under the collector's ingest cap (16MB): a burst of
+// big-bodied events batched into one flush must never produce a payload the
+// collector rejects wholesale (413 → silent loss of the entire batch).
+const MAX_POST_BYTES = 4 * 1024 * 1024;
+
+function post(payload: string): void {
   try {
     const req = pristineHttpRequest(
       {
@@ -179,8 +188,33 @@ function flush(): void {
   }
 }
 
+function flush(): void {
+  flushTimer = null;
+  if (queue.length === 0 || !config.port) return;
+  const batch = queue;
+  queue = [];
+  // Chunk by byte size, not event count: one event is bounded (~2× bodyLimit
+  // base64-inflated) but a batch of many such events can exceed the ingest cap.
+  let lines: string[] = [];
+  let bytes = 0;
+  for (const e of batch) {
+    const line = JSON.stringify(e);
+    if (bytes > 0 && bytes + line.length + 1 > MAX_POST_BYTES) {
+      post(lines.join('\n'));
+      lines = [];
+      bytes = 0;
+    }
+    lines.push(line);
+    bytes += line.length + 1;
+  }
+  if (lines.length > 0) post(lines.join('\n'));
+}
+
 export function emit(event: NetbridgeEvent): void {
   if (!config.port) return;
+  // Drop under sustained backpressure rather than grow unbounded. Debugging
+  // telemetry must never be the reason the host app runs out of memory.
+  if (queue.length >= MAX_QUEUE) return;
   queue.push(event);
   if (!flushTimer) {
     flushTimer = setTimeout(flush, 20);

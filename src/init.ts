@@ -27,7 +27,12 @@ export function detectProject(cwd: string): Detection {
 
   const pkgPath = path.join(cwd, 'package.json');
   if (fs.existsSync(pkgPath)) {
-    const pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    let pkg: any = {};
+    try {
+      pkg = JSON.parse(fs.readFileSync(pkgPath, 'utf8'));
+    } catch {
+      /* malformed package.json — skip detection, keep defaults */
+    }
     const deps = { ...pkg.dependencies, ...pkg.devDependencies };
     if (deps.next) framework = 'next';
     else if (deps.nuxt) framework = 'nuxt';
@@ -57,6 +62,16 @@ export function runInit(cwd: string): number {
     return 1;
   }
 
+  let raw = '';
+  let pkg: any = {};
+  try {
+    raw = fs.readFileSync(pkgPath, 'utf8');
+    pkg = JSON.parse(raw);
+  } catch (err) {
+    console.error('[netbridge] package.json is not valid JSON —', (err as Error).message);
+    return 1;
+  }
+
   const detection = detectProject(cwd);
   if (!detection.devCommand) {
     console.error(
@@ -66,8 +81,6 @@ export function runInit(cwd: string): number {
     return 1;
   }
 
-  const raw = fs.readFileSync(pkgPath, 'utf8');
-  const pkg = JSON.parse(raw);
   pkg.scripts = pkg.scripts || {};
 
   if (pkg.scripts['dev:netbridge']) {

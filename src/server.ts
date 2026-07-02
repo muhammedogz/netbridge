@@ -14,6 +14,9 @@ import * as path from 'path';
 import type { NetbridgeEvent } from './capture/shared';
 
 const MAX_EVENTS = 4000;
+// Hard cap on a single /ingest body: a buggy or runaway producer must never be
+// able to OOM the collector. Comfortably fits a batch of NDJSON capture events.
+const MAX_INGEST_BYTES = 16 * 1024 * 1024;
 
 export interface CollectorHandle {
   port: number;
@@ -26,7 +29,6 @@ interface MergedRequest {
 }
 
 export function startCollector(preferredPort: number): Promise<CollectorHandle> {
-  const events: NetbridgeEvent[] = [];
   const merged = new Map<string, MergedRequest>();
   const sseClients = new Set<http.ServerResponse>();
 
@@ -45,7 +47,9 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     const clean = urlPath.split('?')[0];
     const rel = clean === '/' ? 'index.html' : clean.replace(/^\/+/, '');
     const file = path.normalize(path.join(uiDir, rel));
-    if (!file.startsWith(uiDir)) return false; // no traversal
+    // Trailing separator: a bare prefix check also matches a sibling like
+    // `<uiDir>-secret`, so require the path to live strictly *inside* uiDir.
+    if (!file.startsWith(uiDir + path.sep)) return false; // no traversal
     try {
       const content = fs.readFileSync(file);
       const ext = path.extname(file).toLowerCase();
@@ -57,10 +61,24 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     }
   }
 
-  function record(event: NetbridgeEvent): void {
-    events.push(event);
-    if (events.length > MAX_EVENTS) events.splice(0, events.length - MAX_EVENTS);
+  // Fan a payload out to every live SSE client, pruning any that have gone
+  // away. A write to a just-disconnected client can throw; that must never
+  // escape into a request handler (record() runs inside /ingest's 'end').
+  function broadcast(payload: string): void {
+    for (const client of sseClients) {
+      if (client.writableEnded || client.destroyed) {
+        sseClients.delete(client);
+        continue;
+      }
+      try {
+        client.write(payload);
+      } catch {
+        sseClients.delete(client);
+      }
+    }
+  }
 
+  function record(event: NetbridgeEvent): void {
     const existing = merged.get(event.id) || { id: event.id };
     for (const [k, v] of Object.entries(event)) {
       if (v !== undefined && k !== 'phase') existing[k] = v;
@@ -73,19 +91,33 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
       if (firstKey) merged.delete(firstKey);
     }
 
-    const payload = `data: ${JSON.stringify(event)}\n\n`;
-    for (const client of sseClients) {
-      client.write(payload);
-    }
+    broadcast(`data: ${JSON.stringify(event)}\n\n`);
   }
 
   const server = http.createServer((req, res) => {
     const url = req.url || '/';
 
     if (req.method === 'POST' && url === '/ingest') {
-      let body = '';
-      req.on('data', (c) => (body += c));
+      // Collect raw Buffers (not string concat) so multi-byte utf8 split across
+      // chunk boundaries is never corrupted, and so the cap counts real bytes.
+      const chunks: Buffer[] = [];
+      let size = 0;
+      let tooLarge = false;
+      req.on('data', (c: Buffer) => {
+        if (tooLarge) return;
+        size += c.length;
+        if (size > MAX_INGEST_BYTES) {
+          // Runaway producer: stop buffering, reject, and cut the socket.
+          tooLarge = true;
+          res.writeHead(413).end();
+          req.destroy();
+          return;
+        }
+        chunks.push(c);
+      });
       req.on('end', () => {
+        if (tooLarge) return;
+        const body = Buffer.concat(chunks).toString('utf8');
         for (const line of body.split('\n')) {
           if (!line.trim()) continue;
           try {
@@ -95,6 +127,10 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
           }
         }
         res.writeHead(204).end();
+      });
+      // A client abort / socket error must not surface as an uncaught throw.
+      req.on('error', () => {
+        /* producer vanished mid-send — nothing to clean up */
       });
       return;
     }
@@ -108,11 +144,20 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
       // Send backlog as merged snapshots, then stream live events.
       res.write(`event: snapshot\ndata: ${JSON.stringify([...merged.values()])}\n\n`);
       sseClients.add(res);
-      const heartbeat = setInterval(() => res.write(': hb\n\n'), 15000);
-      req.on('close', () => {
+      const heartbeat = setInterval(() => {
+        try {
+          res.write(': hb\n\n');
+        } catch {
+          /* socket died between ticks — cleanup runs on close/error */
+        }
+      }, 15000);
+      const cleanup = () => {
         clearInterval(heartbeat);
         sseClients.delete(res);
-      });
+      };
+      req.on('close', cleanup);
+      // Without an 'error' listener a late write error would crash the process.
+      res.on('error', cleanup);
       return;
     }
 
@@ -138,10 +183,8 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     }
 
     if (req.method === 'POST' && url === '/api/clear') {
-      events.length = 0;
       merged.clear();
-      const payload = `event: clear\ndata: {}\n\n`;
-      for (const client of sseClients) client.write(payload);
+      broadcast(`event: clear\ndata: {}\n\n`);
       res.writeHead(204).end();
       return;
     }
@@ -165,7 +208,9 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
       // from a failed attempt must never resolve with the busy port number.
       const onError = (err: NodeJS.ErrnoException) => {
         server.removeListener('listening', onListening);
-        if (err.code === 'EADDRINUSE' && attempts < 20) {
+        // Stop before 65536: server.listen() throws a synchronous RangeError on
+        // an out-of-range port, which would escape this handler uncaught.
+        if (err.code === 'EADDRINUSE' && attempts < 20 && port < 65535) {
           tryListen(port + 1);
         } else {
           reject(err);

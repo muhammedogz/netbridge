@@ -47,7 +47,7 @@ async function main(): Promise<void> {
   let rest = [...argv];
   if (rest[0] === '--port' || rest[0] === '-p') {
     port = Number(rest[1]);
-    if (!Number.isInteger(port) || port <= 0) {
+    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
       console.error('[netbridge] invalid --port value');
       process.exit(1);
     }
@@ -74,6 +74,10 @@ async function main(): Promise<void> {
   const child = spawn(rest[0], rest.slice(1), {
     stdio: 'inherit',
     env,
+    // On Windows a bare command like `next`/`pnpm` resolves to a `.cmd` shim
+    // that is only runnable through a shell — without this, spawn ENOENTs.
+    // POSIX keeps shell:false so signals and arg passing stay exact.
+    shell: process.platform === 'win32',
   });
 
   child.on('error', (err) => {

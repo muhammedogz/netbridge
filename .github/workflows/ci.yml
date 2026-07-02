@@ -30,7 +30,7 @@ jobs:
       - name: Build (cli + ui)
         run: pnpm build
 
-      - name: Smoke test (28 assertions, no network needed)
+      - name: Smoke test (no network needed)
         run: pnpm test
 
       - name: Verify npm tarball contents

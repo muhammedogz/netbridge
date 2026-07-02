@@ -1,39 +1,48 @@
-import { useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useMemo, useState } from 'react';
 import { useRequests } from './useRequests';
 import { RequestTable } from './components/RequestTable';
 import { ThemeToggle } from './components/ThemeToggle';
 import { DetailPane } from './components/DetailPane';
-import { downloadBlob } from './lib';
+import { ExportMenu, type ExportKind } from './components/ExportMenu';
+import { buildHar, downloadBlob, matchesFilter } from './lib';
+import type { CapturedRequest } from './types';
 
 export function App() {
   const { requests, live, clearAll } = useRequests();
   const [filterText, setFilterText] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const [exportFlash, setExportFlash] = useState(false);
-  const exportTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
+  // Defer the expensive scan (bodies can total hundreds of MB) so keystrokes
+  // render immediately and the row list catches up a frame later.
+  const deferredFilter = useDeferredValue(filterText);
 
   const filtered = useMemo(() => {
-    if (!filterText) return requests;
-    const terms = filterText.toLowerCase().split(/\s+/);
-    return requests.filter((r) => {
-      const hay = `${r.method} ${r.url} ${r.status || ''} ${r.source || ''}`.toLowerCase();
-      return terms.every((t) => hay.includes(t));
-    });
-  }, [requests, filterText]);
+    if (!deferredFilter.trim()) return requests;
+    return requests.filter((r) => matchesFilter(r, deferredFilter));
+  }, [requests, deferredFilter]);
 
   const selected = selectedId ? (requests.find((r) => r.id === selectedId) ?? null) : null;
 
-  const onExport = async () => {
+  const onExport = async (kind: ExportKind) => {
     const res = await fetch('/api/requests');
-    const data = await res.json();
+    const data: CapturedRequest[] = await res.json();
     const stamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
-    downloadBlob(
-      new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
-      `netbridge-export-${stamp}.json`
-    );
-    setExportFlash(true);
-    clearTimeout(exportTimer.current);
-    exportTimer.current = setTimeout(() => setExportFlash(false), 1200);
+    if (kind === 'har') {
+      let version = '0.0.0';
+      try {
+        version = (await (await fetch('/api/health')).json()).version || version;
+      } catch {
+        /* keep fallback */
+      }
+      downloadBlob(
+        new Blob([JSON.stringify(buildHar(data, version), null, 2)], { type: 'application/json' }),
+        `netbridge-export-${stamp}.har`
+      );
+    } else {
+      downloadBlob(
+        new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' }),
+        `netbridge-export-${stamp}.json`
+      );
+    }
   };
 
   return (
@@ -46,20 +55,14 @@ export function App() {
         <input
           id="filter"
           type="text"
-          placeholder="filter by url, method, status…"
+          placeholder="filter by url, method, status, body…"
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
         <span id="count">
           {filterText ? `${filtered.length}/${requests.length}` : requests.length}
         </span>
-        <button
-          className={exportFlash ? 'flash' : ''}
-          onClick={onExport}
-          title="download all captured requests as JSON"
-        >
-          export
-        </button>
+        <ExportMenu onExport={onExport} />
         <button
           onClick={async () => {
             await clearAll();

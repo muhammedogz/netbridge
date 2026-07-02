@@ -1,22 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
-import type { CapturedRequest } from '../types';
-import { copyText, formatRequestCurl, formatRequestJSON, formatRequestMarkdown } from '../lib';
 
-interface MenuItem {
-  label: string;
-  build: (r: CapturedRequest) => string;
-}
+export type ExportKind = 'json' | 'har';
 
-// The split button's primary action is the first item (Markdown essentials).
-const ITEMS: MenuItem[] = [
-  { label: 'Markdown — essentials', build: (r) => formatRequestMarkdown(r, false) },
-  { label: 'Markdown — everything', build: (r) => formatRequestMarkdown(r, true) },
-  { label: 'JSON — essentials', build: (r) => formatRequestJSON(r, false) },
-  { label: 'JSON — everything', build: (r) => formatRequestJSON(r, true) },
-  { label: 'cURL', build: (r) => formatRequestCurl(r) },
+const ITEMS: { kind: ExportKind; label: string }[] = [
+  { kind: 'json', label: 'JSON — raw' },
+  { kind: 'har', label: 'HAR 1.2' },
 ];
 
-export function CopyMenu({ r }: { r: CapturedRequest }) {
+/**
+ * Header export split button: plain click keeps the historical behavior
+ * (raw JSON download), the caret opens the format menu (JSON / HAR).
+ */
+export function ExportMenu({ onExport }: { onExport: (kind: ExportKind) => Promise<void> }) {
   const [open, setOpen] = useState(false);
   const [flash, setFlash] = useState(false);
   const rootRef = useRef<HTMLSpanElement>(null);
@@ -38,11 +33,10 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
     };
   }, [open]);
 
-  // Clear a pending flash-reset timer if the menu unmounts (selection change).
   useEffect(() => () => clearTimeout(flashTimer.current), []);
 
-  const doCopy = async (item: MenuItem) => {
-    await copyText(item.build(r));
+  const run = async (kind: ExportKind) => {
+    await onExport(kind);
     setOpen(false);
     setFlash(true);
     clearTimeout(flashTimer.current);
@@ -52,15 +46,15 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
   return (
     <span className="copymenu" ref={rootRef}>
       <button
-        className={`iconbtn copymenu-main ${flash ? 'flash' : ''}`}
-        title="copy this request as Markdown (essentials)"
-        onClick={() => doCopy(ITEMS[0])}
+        className={`copymenu-main ${flash ? 'flash' : ''}`}
+        title="download all captured requests as JSON"
+        onClick={() => run('json')}
       >
-        {flash ? 'copied!' : 'copy request'}
+        export
       </button>
       <button
-        className="iconbtn copymenu-caret"
-        title="copy format options"
+        className="copymenu-caret"
+        title="export format options"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((v) => !v)}
@@ -68,9 +62,9 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
         ▾
       </button>
       {open && (
-        <div className="copymenu-pop" role="menu">
+        <div className="copymenu-pop right" role="menu">
           {ITEMS.map((item) => (
-            <button key={item.label} role="menuitem" onClick={() => doCopy(item)}>
+            <button key={item.kind} role="menuitem" onClick={() => run(item.kind)}>
               {item.label}
             </button>
           ))}

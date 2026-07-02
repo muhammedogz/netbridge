@@ -51,6 +51,30 @@ export function headersText(obj?: Record<string, string>): string {
     .join('\n');
 }
 
+// ---------------------------------------------------------------------------
+// Filtering — every whitespace-separated term must match (case-insensitive
+// substring) somewhere in metadata, headers, or utf8 bodies.
+// ---------------------------------------------------------------------------
+
+/** One lower-cased searchable string per row: metadata, headers, utf8 bodies. */
+function haystack(r: CapturedRequest): string {
+  let hay = `${r.method} ${r.url} ${r.status || ''} ${r.source || ''}`;
+  for (const h of [r.reqHeaders, r.resHeaders]) {
+    for (const [k, v] of Object.entries(h || {})) hay += ` ${k}: ${v}`;
+  }
+  // base64 (binary) bodies are excluded: matches inside base64 text are noise.
+  if (r.reqBody != null && r.reqBodyEncoding !== 'base64') hay += ` ${r.reqBody}`;
+  if (r.resBody != null && r.resBodyEncoding !== 'base64') hay += ` ${r.resBody}`;
+  return hay.toLowerCase();
+}
+
+export function matchesFilter(r: CapturedRequest, query: string): boolean {
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (terms.length === 0) return true;
+  const hay = haystack(r);
+  return terms.every((t) => hay.includes(t));
+}
+
 export async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -234,6 +258,129 @@ export function formatRequestJSON(r: CapturedRequest, full: boolean): string {
     };
   }
   return JSON.stringify(out, null, 2);
+}
+
+// ---------------------------------------------------------------------------
+// "Copy as cURL" — a runnable POSIX-shell command from a captured request.
+// ---------------------------------------------------------------------------
+
+/** Single-quote for POSIX shells; embedded quotes use the '\'' idiom. */
+function shellQuote(s: string): string {
+  return `'${s.replace(/'/g, `'\\''`)}'`;
+}
+
+export function formatRequestCurl(r: CapturedRequest): string {
+  const parts: string[] = [`curl ${shellQuote(r.url)}`];
+  const method = (r.method || 'GET').toUpperCase();
+  if (method !== 'GET') parts.push(`-X ${method}`);
+
+  for (const [name, value] of Object.entries(r.reqHeaders || {})) {
+    // curl computes content-length itself; a stale captured value would be
+    // wrong the moment the user edits the body.
+    if (name.toLowerCase() === 'content-length') continue;
+    parts.push(`-H ${shellQuote(`${name}: ${value}`)}`);
+  }
+
+  const comments: string[] = [];
+  if (r.reqBody != null) {
+    if (r.reqBodyEncoding === 'base64') {
+      // Raw bytes cannot be inlined portably — flag instead of mangling.
+      comments.push(`# binary body omitted (${fmtSize(r.reqBody, 'base64')}) — use download`);
+    } else {
+      parts.push(`--data-raw ${shellQuote(r.reqBody)}`);
+    }
+  }
+  if (r.reqBodyTruncated) comments.push('# body truncated at capture');
+
+  const cmd = parts.join(' \\\n  ');
+  return comments.length ? `${cmd}\n${comments.join('\n')}` : cmd;
+}
+
+// ---------------------------------------------------------------------------
+// HAR 1.2 export — hand-written mapping (spec is small; keeps zero deps).
+// Custom fields are underscore-prefixed as the HAR spec requires.
+// ---------------------------------------------------------------------------
+
+function harHeaders(h?: Record<string, string>): { name: string; value: string }[] {
+  return Object.entries(h || {}).map(([name, value]) => ({ name, value }));
+}
+
+function harQueryString(url: string): { name: string; value: string }[] {
+  try {
+    return [...new URL(url).searchParams].map(([name, value]) => ({ name, value }));
+  } catch {
+    return [];
+  }
+}
+
+export function buildHar(requests: CapturedRequest[], version: string): object {
+  // seq exists only on client-side rows; server dumps arrive in insertion
+  // order and the sort is stable, so both sources come out chronological.
+  const entries = [...requests]
+    .sort((a, b) => (a.seq ?? 0) - (b.seq ?? 0))
+    .map((r) => {
+      const time = r.durationMs ?? 0;
+      const reqCt = String(r.reqHeaders?.['content-type'] || '');
+      const resCt = String(r.resHeaders?.['content-type'] || '');
+      const entry: Record<string, unknown> = {
+        // Merged rows carry the ts of the LAST phase (the end event), so the
+        // real start is ts minus duration; pending rows only have the start ts.
+        startedDateTime: new Date(r.ts - (r.durationMs ?? 0)).toISOString(),
+        time,
+        request: {
+          method: r.method,
+          url: r.url,
+          httpVersion: 'HTTP/1.1',
+          headers: harHeaders(r.reqHeaders),
+          queryString: harQueryString(r.url),
+          cookies: [],
+          headersSize: -1,
+          bodySize: bodyBytes(r.reqBody, r.reqBodyEncoding),
+          ...(r.reqBody != null
+            ? {
+                postData: {
+                  mimeType: reqCt || 'application/octet-stream',
+                  text: r.reqBody,
+                  // Official `encoding` exists only on response content; use a
+                  // HAR-legal custom field for binary request bodies.
+                  ...(r.reqBodyEncoding === 'base64' ? { _encoding: 'base64' } : {}),
+                },
+              }
+            : {}),
+        },
+        response: {
+          status: r.status ?? 0,
+          statusText: r.statusText ?? '',
+          httpVersion: 'HTTP/1.1',
+          headers: harHeaders(r.resHeaders),
+          cookies: [],
+          content: {
+            size: bodyBytes(r.resBody, r.resBodyEncoding),
+            mimeType: resCt || 'x-unknown',
+            ...(r.resBody != null ? { text: r.resBody } : {}),
+            ...(r.resBodyEncoding === 'base64' ? { encoding: 'base64' } : {}),
+          },
+          redirectURL: '',
+          headersSize: -1,
+          bodySize: bodyBytes(r.resBody, r.resBodyEncoding),
+        },
+        cache: {},
+        // Only the total is known; the spec requires the parts to sum to time.
+        timings: { send: 0, wait: time, receive: 0 },
+      };
+      if (r.state === 'error' && r.error) entry._error = r.error;
+      if (r.state === 'pending') entry._state = 'pending';
+      if (r.reqBodyTruncated || r.resBodyTruncated) entry._bodyTruncated = true;
+      return entry;
+    });
+
+  return {
+    log: {
+      version: '1.2',
+      creator: { name: 'netbridge', version },
+      entries,
+    },
+  };
 }
 
 export function downloadBody(r: CapturedRequest, kind: 'request' | 'response'): void {

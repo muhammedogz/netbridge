@@ -40,6 +40,22 @@ button.flash { border-color: var(--green); color: var(--green); }
 button.theme { display: inline-flex; align-items: center; padding: 5px 8px; }
 button.theme svg { width: 14px; height: 14px; display: block; }
 
+/* structured filter chips */
+#filterbar { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; padding: 5px 12px; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.chip { background: var(--bg3); color: var(--fg-dim); border: 1px solid var(--border); border-radius: 10px; padding: 2px 9px; font-size: 11px; font-family: var(--mono); cursor: pointer; }
+.chip:hover { border-color: var(--accent); color: var(--fg); }
+.chip.on { border-color: currentColor; background: var(--bg); color: var(--accent); font-weight: 600; }
+.chip.on.GET { color: var(--accent); }
+.chip.on.POST { color: var(--green); }
+.chip.on.PUT, .chip.on.PATCH { color: var(--yellow); }
+.chip.on.DELETE { color: var(--red); }
+.chip.on.s2 { color: var(--green); }
+.chip.on.s3 { color: var(--purple); }
+.chip.on.s4 { color: var(--yellow); }
+.chip.on.s5, .chip.on.err { color: var(--red); }
+.chip.reset { border-style: dashed; margin-left: 4px; }
+.chip-sep { width: 1px; height: 14px; background: var(--border); margin: 0 5px; }
+
 main { flex: 1; display: flex; min-height: 0; }
 #list { flex: 1; overflow-y: auto; min-width: 0; }
 table { width: 100%; border-collapse: collapse; }
@@ -93,6 +109,7 @@ td.seq { color: var(--fg-dim); text-align: right; width: 1%; user-select: none; 
 .copymenu-pop button:hover { background: var(--bg3); color: var(--accent); }
 /* menus near the right edge (header export) anchor to the right instead */
 .copymenu-pop.right { left: auto; right: 0; }
+.copymenu-div { height: 1px; background: var(--border); margin: 3px 2px; }
 
 .kv { display: grid; grid-template-columns: minmax(120px, max-content) 1fr; gap: 2px 12px; }
 .kv .k { color: var(--purple); word-break: break-all; }

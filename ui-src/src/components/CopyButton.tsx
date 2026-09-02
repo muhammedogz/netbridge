@@ -1,7 +1,17 @@
 import { useEffect, useRef, useState } from 'react';
 import { copyText } from '../lib';
 
-export function CopyButton({ text, label = 'copy' }: { text: string | (() => string); label?: string }) {
+export function CopyButton({
+  text,
+  label = 'copy',
+  className = 'iconbtn',
+  title,
+}: {
+  text: string | (() => string);
+  label?: string;
+  className?: string;
+  title?: string;
+}) {
   const [flash, setFlash] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout>>(undefined);
 
@@ -9,7 +19,8 @@ export function CopyButton({ text, label = 'copy' }: { text: string | (() => str
 
   return (
     <button
-      className={`iconbtn ${flash ? 'flash' : ''}`}
+      className={`${className} ${flash ? 'flash' : ''}`.trim()}
+      title={title}
       onClick={async () => {
         await copyText(typeof text === 'function' ? text() : text);
         setFlash(true);

@@ -75,6 +75,38 @@ export function matchesFilter(r: CapturedRequest, query: string): boolean {
   return terms.every((t) => hay.includes(t));
 }
 
+// ---------------------------------------------------------------------------
+// Structured filters — chip toggles ANDed with the text query. Within one
+// dimension selected values are ORed; an empty dimension matches everything.
+// ---------------------------------------------------------------------------
+
+export type StatusClass = '2xx' | '3xx' | '4xx' | '5xx' | 'error' | 'pending';
+
+export interface StructuredFilter {
+  methods: ReadonlySet<string>;
+  statuses: ReadonlySet<StatusClass>;
+  sources: ReadonlySet<string>;
+}
+
+export function statusClassOf(r: CapturedRequest): StatusClass | null {
+  if (r.state === 'error') return 'error';
+  if (r.state === 'pending') return 'pending';
+  if (r.status != null && r.status >= 200 && r.status < 600) {
+    return `${Math.floor(r.status / 100)}xx` as StatusClass;
+  }
+  return null;
+}
+
+export function matchesStructured(r: CapturedRequest, f: StructuredFilter): boolean {
+  if (f.methods.size > 0 && !f.methods.has(r.method.toUpperCase())) return false;
+  if (f.statuses.size > 0) {
+    const cls = statusClassOf(r);
+    if (cls === null || !f.statuses.has(cls)) return false;
+  }
+  if (f.sources.size > 0 && !f.sources.has(r.source || '')) return false;
+  return true;
+}
+
 export async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
@@ -294,6 +326,136 @@ export function formatRequestCurl(r: CapturedRequest): string {
 
   const cmd = parts.join(' \\\n  ');
   return comments.length ? `${cmd}\n${comments.join('\n')}` : cmd;
+}
+
+// ---------------------------------------------------------------------------
+// "Copy as code" — runnable client snippets rebuilt from a captured request.
+// content-length is dropped everywhere: the client recomputes it, and a stale
+// captured value goes wrong the moment the user edits the body.
+// ---------------------------------------------------------------------------
+
+function codeHeaders(r: CapturedRequest): [string, string][] {
+  return Object.entries(r.reqHeaders || {}).filter(([k]) => k.toLowerCase() !== 'content-length');
+}
+
+export function formatRequestFetch(r: CapturedRequest): string {
+  const method = (r.method || 'GET').toUpperCase();
+  const headers = codeHeaders(r);
+  const opts: string[] = [];
+  if (method !== 'GET') opts.push(`  method: ${JSON.stringify(method)},`);
+  if (headers.length) {
+    opts.push('  headers: {');
+    for (const [k, v] of headers) opts.push(`    ${JSON.stringify(k)}: ${JSON.stringify(v)},`);
+    opts.push('  },');
+  }
+  const notes: string[] = [];
+  if (r.reqBody != null) {
+    if (r.reqBodyEncoding === 'base64') {
+      notes.push(`// binary body omitted (${fmtSize(r.reqBody, 'base64')}) — use download`);
+    } else {
+      opts.push(`  body: ${JSON.stringify(r.reqBody)},`);
+    }
+  }
+  if (r.reqBodyTruncated) notes.push('// body truncated at capture');
+  const optsBlock = opts.length ? `, {\n${opts.join('\n')}\n}` : '';
+  const cmd = `await fetch(${JSON.stringify(r.url)}${optsBlock});`;
+  return notes.length ? `${cmd}\n${notes.join('\n')}` : cmd;
+}
+
+// JSON string literals are valid Python string literals for everything
+// JSON.stringify emits, so the same escaping is safe to reuse here.
+export function formatRequestPython(r: CapturedRequest): string {
+  const method = (r.method || 'GET').toUpperCase();
+  const headers = codeHeaders(r);
+  const lines: string[] = ['import requests', ''];
+  const args: string[] = [JSON.stringify(method), JSON.stringify(r.url)];
+  if (headers.length) {
+    lines.push('headers = {');
+    for (const [k, v] of headers) lines.push(`    ${JSON.stringify(k)}: ${JSON.stringify(v)},`);
+    lines.push('}');
+    args.push('headers=headers');
+  }
+  const notes: string[] = [];
+  if (r.reqBody != null) {
+    if (r.reqBodyEncoding === 'base64') {
+      notes.push(`# binary body omitted (${fmtSize(r.reqBody, 'base64')}) — use download`);
+    } else {
+      args.push(`data=${JSON.stringify(r.reqBody)}`);
+    }
+  }
+  if (r.reqBodyTruncated) notes.push('# body truncated at capture');
+  lines.push(`response = requests.request(${args.join(', ')})`);
+  lines.push('print(response.status_code, response.text)');
+  return lines.concat(notes).join('\n');
+}
+
+// ---------------------------------------------------------------------------
+// "Copy as AI prompt" — a self-contained prompt that briefs an AI agent on one
+// captured request: full wire data plus a task matched to how the call ended.
+// ---------------------------------------------------------------------------
+
+export function formatRequestPrompt(r: CapturedRequest): string {
+  const intro =
+    'Below is one outbound HTTP request captured server-side by netbridge (a network ' +
+    'inspector for Node.js apps). It is the actual wire traffic my server sent and ' +
+    'received — headers and bodies are real, not reconstructed.';
+
+  let task: string;
+  if (r.state === 'error') {
+    task =
+      `This request FAILED at the network level before receiving a response` +
+      (r.error ? ` (error: \`${r.error}\`)` : '') +
+      '. Diagnose the most likely root cause — consider DNS resolution, connection refused ' +
+      '(wrong host/port, service not running), TLS problems, and timeouts — using the URL and ' +
+      'request details above. Then give me the concrete fix, and a way to verify it.';
+  } else if (r.status != null && r.status >= 500) {
+    task =
+      `This request came back with a server error (${r.status}${r.statusText ? ' ' + r.statusText : ''}). ` +
+      'Read the response body/headers for the failure detail, but also check whether my request ' +
+      '(URL, headers, body shape) could have triggered it. Tell me the most likely cause, whose side ' +
+      'the bug is on, and what to change or check next.';
+  } else if (r.status != null && r.status >= 400) {
+    task =
+      `This request was rejected (${r.status}${r.statusText ? ' ' + r.statusText : ''}), which usually ` +
+      'means my request is wrong. Compare the request URL, query params, headers (auth, content-type) ' +
+      'and body against what the response error says, identify exactly what the server objected to, ' +
+      'and show me the corrected request.';
+  } else {
+    task =
+      'This request succeeded. Explain what it does, and review it for anything worth improving or ' +
+      'watching out for: payload shape, missing/odd headers, auth handling, response size, latency.';
+  }
+
+  const notes: string[] = [];
+  if (r.reqBodyTruncated || r.resBodyTruncated) {
+    notes.push('Note: bodies marked "(truncated)" were cut at the capture limit — the wire payload was larger.');
+  }
+  notes.push(
+    'Note: sensitive header values (authorization, cookie, …) may be shown redacted; that is the inspector, not the wire.'
+  );
+
+  return [intro, '---', formatRequestMarkdown(r, true).trimEnd(), '---', `## Your task\n\n${task}`, notes.join('\n')].join(
+    '\n\n'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Agent API instructions — copyable block that points an AI agent (or script)
+// at the live collector API.
+// ---------------------------------------------------------------------------
+
+export function agentApiInstructions(origin: string): string {
+  return `netbridge — a server-side HTTP inspector — is running at ${origin}, live-capturing this app's outbound HTTP traffic: method, url, status, headers, full request/response bodies, timing and errors.
+
+Read the capture:
+- GET  ${origin}/api/requests   every captured request, as a JSON array
+- GET  ${origin}/api/health     collector info: { app: "netbridge", version, requests }
+- GET  ${origin}/events         SSE stream (snapshot event, then live capture events)
+- POST ${origin}/api/clear      reset the capture buffer
+
+Example: \`curl -s ${origin}/api/requests\` shows exactly what the server sent and received. Use it to verify outbound calls, inspect payloads, and diagnose failures (entries with state "error", or status >= 400).
+
+Reading entries: bodies over the capture limit carry reqBodyTruncated/resBodyTruncated: true; binary bodies are base64 (reqBodyEncoding/resBodyEncoding: "base64"); sensitive header values (authorization, cookie, …) are redacted by default.`;
 }
 
 // ---------------------------------------------------------------------------

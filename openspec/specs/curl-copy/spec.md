@@ -1,8 +1,22 @@
 # curl-copy Specification
 
 ## Purpose
-TBD - created by archiving change add-curl-har-export. Update Purpose after archive.
+Reproduce a captured request as runnable client code — cURL, JavaScript `fetch`, Python `requests` — copied from the request copy menu.
 ## Requirements
+### Requirement: Copy as fetch / Python snippets
+
+The request copy menu SHALL offer "fetch (JS)" and "Python — requests" items that copy a runnable snippet reproducing the captured request: method (fetch omits it for GET), all captured request headers except `content-length`, and the utf8 request body. Binary (base64) bodies SHALL be replaced by a language-appropriate comment noting the omission and size; truncated bodies SHALL append a truncation comment.
+
+#### Scenario: POST with JSON body as fetch
+
+- **WHEN** a captured POST with a utf8 JSON body is copied as "fetch (JS)"
+- **THEN** the snippet is an `await fetch(url, { method, headers, body })` call containing the captured headers (minus `content-length`) and body as string literals
+
+#### Scenario: Binary body as Python
+
+- **WHEN** a captured request with a base64 body is copied as "Python — requests"
+- **THEN** the snippet passes no `data=` argument and contains a `# binary body omitted` comment
+
 ### Requirement: Copy as cURL menu entry
 
 The request copy menu SHALL offer a "cURL" item that copies a `curl` command reproducing the captured request to the clipboard.

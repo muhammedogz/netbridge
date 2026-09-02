@@ -1,8 +1,27 @@
 # request-filtering Specification
 
 ## Purpose
-TBD - created by archiving change add-body-search. Update Purpose after archive.
+Narrow the live request list to what the user is looking for: a free-text search over metadata, headers and text bodies, combined with structured chip filters for method, status class and source.
 ## Requirements
+### Requirement: Structured filter chips
+
+The UI SHALL provide toggleable filter chips for method (the common verbs GET/POST/PUT/PATCH/DELETE plus any other method actually captured), status class (`2xx`/`3xx`/`4xx`/`5xx`/`error`/`pending`) and source (`fetch`/`http`). Within one dimension selected chips are ORed; across dimensions and with the text filter, conditions are ANDed. A dimension with no chip selected matches everything. A reset control SHALL clear all active chips at once.
+
+#### Scenario: Status class chip
+
+- **WHEN** the `4xx` chip is active and the text filter is empty
+- **THEN** only requests whose response status is 400–499 remain and the count reads `<matching>/<total>`
+
+#### Scenario: Chips combine with text search
+
+- **WHEN** the `POST` chip is active and the text filter is `order_id`
+- **THEN** only POST requests that match `order_id` in a searched field remain
+
+#### Scenario: Unusual method appears as a chip
+
+- **WHEN** an `OPTIONS` request is captured
+- **THEN** an `OPTIONS` chip appears alongside the common verbs
+
 ### Requirement: Filter matches metadata, headers, and text bodies
 
 The filter input SHALL treat the entered text as whitespace-separated terms where every term must match (case-insensitive substring) at least one of: method, url, status, source, request/response header names or values, or request/response bodies whose captured encoding is `utf8`. Bodies with encoding `base64` SHALL NOT be searched.

@@ -1,6 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import type { CapturedRequest } from '../types';
-import { copyText, formatRequestCurl, formatRequestJSON, formatRequestMarkdown } from '../lib';
+import {
+  copyText,
+  formatRequestCurl,
+  formatRequestFetch,
+  formatRequestJSON,
+  formatRequestMarkdown,
+  formatRequestPrompt,
+  formatRequestPython,
+} from '../lib';
 
 interface MenuItem {
   label: string;
@@ -14,7 +22,12 @@ const ITEMS: MenuItem[] = [
   { label: 'JSON — essentials', build: (r) => formatRequestJSON(r, false) },
   { label: 'JSON — everything', build: (r) => formatRequestJSON(r, true) },
   { label: 'cURL', build: (r) => formatRequestCurl(r) },
+  { label: 'fetch (JS)', build: (r) => formatRequestFetch(r) },
+  { label: 'Python — requests', build: (r) => formatRequestPython(r) },
 ];
+
+// Separated in the menu: not a data format but a ready-to-paste agent briefing.
+const AI_ITEM: MenuItem = { label: 'AI prompt — debug / explain', build: (r) => formatRequestPrompt(r) };
 
 export function CopyMenu({ r }: { r: CapturedRequest }) {
   const [open, setOpen] = useState(false);
@@ -74,6 +87,10 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
               {item.label}
             </button>
           ))}
+          <div className="copymenu-div" />
+          <button role="menuitem" onClick={() => doCopy(AI_ITEM)}>
+            {AI_ITEM.label}
+          </button>
         </div>
       )}
     </span>

@@ -1,24 +1,64 @@
-import { useDeferredValue, useMemo, useState } from 'react';
+import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useRequests } from './useRequests';
 import { RequestTable } from './components/RequestTable';
 import { ThemeToggle } from './components/ThemeToggle';
 import { DetailPane } from './components/DetailPane';
 import { ExportMenu, type ExportKind } from './components/ExportMenu';
-import { buildHar, downloadBlob, matchesFilter } from './lib';
+import { FilterBar } from './components/FilterBar';
+import { CopyButton } from './components/CopyButton';
+import {
+  agentApiInstructions,
+  buildHar,
+  downloadBlob,
+  matchesFilter,
+  matchesStructured,
+  type StatusClass,
+} from './lib';
 import type { CapturedRequest } from './types';
+
+function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
+  const next = new Set(set);
+  if (next.has(value)) next.delete(value);
+  else next.add(value);
+  return next;
+}
 
 export function App() {
   const { requests, live, clearAll } = useRequests();
   const [filterText, setFilterText] = useState('');
+  const [methods, setMethods] = useState<ReadonlySet<string>>(new Set());
+  const [statuses, setStatuses] = useState<ReadonlySet<StatusClass>>(new Set());
+  const [sources, setSources] = useState<ReadonlySet<string>>(new Set());
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Defer the expensive scan (bodies can total hundreds of MB) so keystrokes
   // render immediately and the row list catches up a frame later.
   const deferredFilter = useDeferredValue(filterText);
 
+  const anyStructured = methods.size + statuses.size + sources.size > 0;
+
   const filtered = useMemo(() => {
-    if (!deferredFilter.trim()) return requests;
-    return requests.filter((r) => matchesFilter(r, deferredFilter));
-  }, [requests, deferredFilter]);
+    const structured = { methods, statuses, sources };
+    const base = anyStructured ? requests.filter((r) => matchesStructured(r, structured)) : requests;
+    if (!deferredFilter.trim()) return base;
+    return base.filter((r) => matchesFilter(r, deferredFilter));
+  }, [requests, deferredFilter, methods, statuses, sources, anyStructured]);
+
+  // Escape: leave the filter box first, then close the detail pane. Open
+  // dropdown menus own the key themselves and must not also close the pane.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (document.querySelector('.copymenu-pop')) return;
+      const active = document.activeElement;
+      if (active instanceof HTMLElement && active.tagName === 'INPUT') {
+        active.blur();
+        return;
+      }
+      setSelectedId(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, []);
 
   const selected = selectedId ? (requests.find((r) => r.id === selectedId) ?? null) : null;
 
@@ -60,8 +100,14 @@ export function App() {
           onChange={(e) => setFilterText(e.target.value)}
         />
         <span id="count">
-          {filterText ? `${filtered.length}/${requests.length}` : requests.length}
+          {filterText || anyStructured ? `${filtered.length}/${requests.length}` : requests.length}
         </span>
+        <CopyButton
+          className=""
+          label="api"
+          title="copy instructions that point an AI agent (or script) at the live capture API"
+          text={() => agentApiInstructions(window.location.origin)}
+        />
         <ExportMenu onExport={onExport} />
         <button
           onClick={async () => {
@@ -73,6 +119,20 @@ export function App() {
         </button>
         <ThemeToggle />
       </header>
+      <FilterBar
+        requests={requests}
+        methods={methods}
+        statuses={statuses}
+        sources={sources}
+        onToggleMethod={(m) => setMethods((s) => toggled(s, m))}
+        onToggleStatus={(st) => setStatuses((s) => toggled(s, st))}
+        onToggleSource={(src) => setSources((s) => toggled(s, src))}
+        onClear={() => {
+          setMethods(new Set());
+          setStatuses(new Set());
+          setSources(new Set());
+        }}
+      />
       <main>
         <RequestTable
           requests={filtered}

@@ -17,9 +17,11 @@ export interface NetbridgeEvent {
   phase: 'start' | 'end' | 'error';
   ts: number;
   pid: number;
-  source: 'fetch' | 'http';
+  source: 'fetch' | 'http' | 'replay';
   method: string;
   url: string;
+  /** For replay entries: the id of the original captured request. */
+  replayOf?: string;
   reqHeaders?: Record<string, string>;
   reqBody?: string;
   reqBodyEncoding?: 'utf8' | 'base64';

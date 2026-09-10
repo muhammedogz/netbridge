@@ -56,7 +56,7 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape') return;
-      if (document.querySelector('.copymenu-pop')) return;
+      if (document.querySelector('.copymenu-pop, .resend-overlay')) return;
       const active = document.activeElement;
       if (active instanceof HTMLElement && active.tagName === 'INPUT') {
         active.blur();
@@ -154,7 +154,7 @@ export function App() {
           selectedId={selectedId}
           onSelect={(id) => setSelectedId(id === selectedId ? null : id)}
         />
-        <DetailPane r={selected} onClose={() => setSelectedId(null)} />
+        <DetailPane r={selected} onClose={() => setSelectedId(null)} onSelectEntry={setSelectedId} />
       </main>
     </>
   );

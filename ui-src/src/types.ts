@@ -3,9 +3,11 @@ export interface CapturedRequest {
   seq: number;
   ts: number;
   pid?: number;
-  source?: 'fetch' | 'http';
+  source?: 'fetch' | 'http' | 'replay';
   method: string;
   url: string;
+  /** For replay entries: the id of the original captured request. */
+  replayOf?: string;
   state: 'pending' | 'done' | 'error';
   reqHeaders?: Record<string, string>;
   reqBody?: string;

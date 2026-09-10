@@ -13,7 +13,7 @@ const STATUS_ITEMS: { value: StatusClass; cls: string }[] = [
 ];
 
 const BASE_METHODS = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'];
-const SOURCES = ['fetch', 'http'];
+const SOURCES = ['fetch', 'http', 'replay'];
 
 function Chip({
   label,

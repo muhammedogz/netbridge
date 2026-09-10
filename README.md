@@ -48,7 +48,7 @@ netbridge --port 5000 -- next dev   # custom UI port
 
 The request table shows method, url, status, timing, size, and which process made the call. It auto-scrolls with new traffic, but only while you're at the bottom.
 
-To narrow it down, the search box matches url, method, status, headers, and request/response bodies; space-separated terms must all match. Below it, chips toggle methods, status classes (`2xx` `3xx` `4xx` `5xx` `error` `pending`), and source (`fetch`/`http`). Chips in the same group are ORed, everything else is ANDed. Clicking `4xx` and `5xx` leaves only the failures.
+To narrow it down, the search box matches url, method, status, headers, and request/response bodies; space-separated terms must all match. Below it, chips toggle methods, status classes (`2xx` `3xx` `4xx` `5xx` `error` `pending`), and source (`fetch`/`http`). Chips in the same group are ORed, everything else is ANDed. Clicking `4xx` and `5xx` leaves only the failures. The `time` min/max boxes narrow by duration: `500` or `500ms` and `1s` or `1.5s` all work, and an empty box leaves that side open, so min `100ms` + max `500ms` gives a range, max `1s` alone shows everything up to a second, and min `500ms` alone shows only the slow ones.
 
 Clicking a row opens the detail pane: headers, pretty-printed bodies, copy and download per body. `Esc` closes it. If you're typing in the search box, the first `Esc` just leaves the box.
 
@@ -125,6 +125,13 @@ The endpoints, all on `127.0.0.1`:
 | `GET /api/health` | `{ app: "netbridge", version, requests }`, lets scripts find a running collector |
 | `GET /events` | SSE stream: a `snapshot` event, then live capture events |
 | `POST /api/clear` | resets the capture buffer |
+| `POST /api/resend` | re-issues a captured request; `{"id"}` resends as-is, add `method`/`url`/`headers`/`body` to resend with edits; returns the settled replay entry |
+
+## Replay
+
+Every captured request can be re-issued: the `resend` button re-sends it unchanged, and `edit & resend` opens an editor for method, URL, headers and body first. The replay is sent from the collector process, appears in the list as a new `replay` entry linked to the original, and agents can trigger the same thing via `POST /api/resend`.
+
+Fidelity notes: header values the inspector redacted at capture (`«redacted»`) are stripped before sending — paste real values in the editor to include them. Computed headers (`host`, `content-length`, …) are dropped and recomputed. Redirects are not followed, so a 302 shows as a 302. Signed single-use proofs like DPoP cannot be regenerated (the signing key lives in your app), so such replays are typically rejected by the server — the editor warns when it sees one.
 
 ## Scope: wire truth, outbound only
 

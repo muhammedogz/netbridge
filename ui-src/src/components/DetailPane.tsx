@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { CapturedRequest } from '../types';
-import { displayBody, downloadBlob, downloadBody, headersText } from '../lib';
+import { displayBody, downloadBlob, downloadBody, headersText, resendRequest } from '../lib';
 import { CopyButton } from './CopyButton';
 import { CopyMenu } from './CopyMenu';
+import { ResendDialog } from './ResendDialog';
 import { StatusBadge } from './StatusBadge';
 
 type Kind = 'response' | 'request';
@@ -71,8 +72,40 @@ function BodySection({ r, kind }: { r: CapturedRequest; kind: Kind }) {
   );
 }
 
-export function DetailPane({ r, onClose }: { r: CapturedRequest | null; onClose: () => void }) {
+export function DetailPane({
+  r,
+  onClose,
+  onSelectEntry,
+}: {
+  r: CapturedRequest | null;
+  onClose: () => void;
+  onSelectEntry: (id: string) => void;
+}) {
   const [tab, setTab] = useState<Kind>('response');
+  const [editing, setEditing] = useState(false);
+  const [resending, setResending] = useState(false);
+  const [resendError, setResendError] = useState<string | null>(null);
+
+  // Selecting another entry must not carry over an open editor or stale state.
+  useEffect(() => {
+    setEditing(false);
+    setResending(false);
+    setResendError(null);
+  }, [r?.id]);
+
+  // Success feedback is the selection jumping to the new replay entry.
+  const resendAsIs = async (id: string) => {
+    setResending(true);
+    setResendError(null);
+    try {
+      const entry = await resendRequest({ id });
+      onSelectEntry(entry.id);
+    } catch (err) {
+      setResendError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setResending(false);
+    }
+  };
 
   return (
     <div id="detail" className={r ? 'open' : ''}>
@@ -90,7 +123,31 @@ export function DetailPane({ r, onClose }: { r: CapturedRequest | null; onClose:
             {r.durationMs != null && <span className="badge">{r.durationMs} ms</span>}
             <span className="badge">{r.source || ''}</span>
             {r.pid != null && <span className="badge">pid {r.pid}</span>}
+            {r.replayOf && (
+              <span
+                className="badge replay-link"
+                title="jump to the original request"
+                onClick={() => onSelectEntry(r.replayOf as string)}
+              >
+                replay of {r.replayOf}
+              </span>
+            )}
             <CopyMenu r={r} />
+            <button
+              className="iconbtn"
+              title="re-issue this request unchanged"
+              disabled={resending}
+              onClick={() => resendAsIs(r.id)}
+            >
+              {resending ? 'sending…' : 'resend'}
+            </button>
+            <button
+              className="iconbtn"
+              title="edit method, url, headers or body, then resend"
+              onClick={() => setEditing(true)}
+            >
+              edit &amp; resend
+            </button>
             <button
               className="iconbtn"
               title="download this entry as JSON"
@@ -108,6 +165,11 @@ export function DetailPane({ r, onClose }: { r: CapturedRequest | null; onClose:
                 {r.error}
               </div>
             )}
+            {resendError && (
+              <div className="error" style={{ marginTop: 6 }}>
+                resend: {resendError}
+              </div>
+            )}
           </div>
           <div className="tabbar">
             {(['response', 'request'] as Kind[]).map((k) => (
@@ -117,6 +179,16 @@ export function DetailPane({ r, onClose }: { r: CapturedRequest | null; onClose:
             ))}
           </div>
           <BodySection r={r} kind={tab} />
+          {editing && (
+            <ResendDialog
+              r={r}
+              onClose={() => setEditing(false)}
+              onResent={(id) => {
+                setEditing(false);
+                onSelectEntry(id);
+              }}
+            />
+          )}
         </div>
       )}
     </div>

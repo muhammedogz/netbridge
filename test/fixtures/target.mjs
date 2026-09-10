@@ -54,5 +54,6 @@ try {
 }
 
 console.log('[target] all requests done');
-// Give the collector time to be queried by the test before this process exits.
-await delay(2500);
+// Give the collector time to be queried by the test (including the /api/resend
+// round-trips) before this process exits.
+await delay(4000);

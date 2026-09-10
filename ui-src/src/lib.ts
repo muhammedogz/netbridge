@@ -51,6 +51,48 @@ export function headersText(obj?: Record<string, string>): string {
     .join('\n');
 }
 
+/** Inverse of headersText: one "Key: value" per line, split on the first colon. */
+export function parseHeadersText(text: string): Record<string, string> {
+  const out: Record<string, string> = {};
+  for (const line of text.split('\n')) {
+    const idx = line.indexOf(':');
+    if (idx <= 0) continue;
+    const key = line.slice(0, idx).trim();
+    if (!key) continue;
+    out[key] = line.slice(idx + 1).trim();
+  }
+  return out;
+}
+
+export interface ResendPayload {
+  id?: string;
+  method?: string;
+  url?: string;
+  headers?: Record<string, string>;
+  body?: string;
+  bodyEncoding?: 'utf8' | 'base64';
+}
+
+/** POST /api/resend; resolves with the settled replay entry. */
+export async function resendRequest(payload: ResendPayload): Promise<CapturedRequest> {
+  const res = await fetch('/api/resend', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    let message = `resend failed (${res.status})`;
+    try {
+      const data = await res.json();
+      if (data?.error) message = String(data.error);
+    } catch {
+      /* keep default message */
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
 // ---------------------------------------------------------------------------
 // Filtering — every whitespace-separated term must match (case-insensitive
 // substring) somewhere in metadata, headers, or utf8 bodies.
@@ -476,6 +518,7 @@ Read the capture:
 - GET  ${origin}/api/health     collector info: { app: "netbridge", version, requests }
 - GET  ${origin}/events         SSE stream (snapshot event, then live capture events)
 - POST ${origin}/api/clear      reset the capture buffer
+- POST ${origin}/api/resend     re-issue a captured request; body {"id"} resends as-is, {"id", "method"?, "url"?, "headers"?, "body"?} resends with edits; returns the settled replay entry (source "replay", replayOf links the original). Redacted header values are stripped before sending.
 
 Example: \`curl -s ${origin}/api/requests\` shows exactly what the server sent and received. Use it to verify outbound calls, inspect payloads, and diagnose failures (entries with state "error", or status >= 400).
 

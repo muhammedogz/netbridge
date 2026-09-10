@@ -3,7 +3,8 @@
  * asserts on the collector's /api/requests output.
  *
  * Covers: fetch GET/POST, http.get (gzip decompression), http.request POST,
- * header redaction, request/response body capture, error capture, both sources.
+ * header redaction, request/response body capture, error capture, both sources,
+ * request replay (/api/resend: as-is, edited, redaction, errors, validation).
  */
 import { spawn } from 'child_process';
 import http from 'http';
@@ -195,6 +196,62 @@ const health = await (await fetch(`http://127.0.0.1:${portA}/api/health`)).json(
 assert(health.app === 'netbridge', 'health endpoint identifies as netbridge');
 assert(typeof health.version === 'string' && health.version.length > 0, 'health endpoint reports version');
 assert(typeof health.requests === 'number', 'health endpoint reports request count');
+
+// --- request replay: POST /api/resend -------------------------------------
+const resend = (payload) =>
+  fetch(`http://127.0.0.1:${portA}/api/resend`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+
+// resend as-is: the settled replay entry comes back inline and joins the buffer
+const beforeResend = (await fetchRequests()).length;
+const asIsRes = await resend({ id: fetchPost?.id });
+assert(asIsRes.status === 200, 'resend as-is returns 200');
+const asIs = await asIsRes.json();
+assert(asIs.state === 'done', 'resend entry settled as done');
+assert(asIs.source === 'replay', 'resend entry has source=replay');
+assert(asIs.replayOf === fetchPost?.id, 'resend entry links the original via replayOf');
+assert(
+  JSON.parse(asIs.resBody || '{}').echoed?.includes('from-fetch'),
+  'resend as-is re-sent the original body'
+);
+assert((await fetchRequests()).length === beforeResend + 1, 'resend added one entry to the buffer');
+
+// edited resend: the body override is what goes on the wire
+const edited = await (await resend({ id: fetchPost?.id, body: '{"hello":"edited"}' })).json();
+assert(
+  JSON.parse(edited.resBody || '{}').echoed?.includes('edited'),
+  'edited resend sent the edited body'
+);
+
+// redaction: headers stored as «redacted» are dropped on send, others kept
+const redacted = await (await resend({ id: fetchGet?.id })).json();
+assert(redacted.state === 'done', 'resend of redacted-header entry settles');
+assert(
+  !('authorization' in (redacted.reqHeaders || {})),
+  'redacted authorization header dropped on resend'
+);
+assert(redacted.reqHeaders?.['x-test'] === 'fetch-get', 'normal header preserved on resend');
+
+// network failure: still a 200 with a recorded state:'error' entry
+const errReplay = await (
+  await resend({ id: fetchGet?.id, url: `http://127.0.0.1:${originPort}/boom` })
+).json();
+assert(errReplay.state === 'error', 'resend network failure recorded as state=error');
+assert(
+  typeof errReplay.error === 'string' && errReplay.error.length > 0,
+  'failed resend carries an error message'
+);
+
+// validation
+assert((await resend({ id: 'nope' })).status === 404, 'resend of unknown id rejected with 404');
+assert(
+  (await resend({ method: 'GET', url: 'file:///etc/passwd' })).status === 400,
+  'resend of non-http url rejected with 400'
+);
+assert((await resend({ method: 'GET' })).status === 400, 'resend without url rejected with 400');
 
 // path traversal is rejected
 const evil = await fetch(`http://127.0.0.1:${portA}/..%2f..%2fpackage.json`);

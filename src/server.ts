@@ -7,16 +7,39 @@
  *   POST /ingest        NDJSON capture events from preloaded app processes
  *   GET  /api/requests  JSON dump of the merged request table
  *   POST /api/clear     reset the buffer
+ *   POST /api/resend    re-issue a captured (optionally edited) request
  */
 import * as http from 'http';
 import * as fs from 'fs';
 import * as path from 'path';
+// Runtime imports from shared are safe here: the collector never calls emit(),
+// and the beforeExit flush no-ops without NETBRIDGE_PORT in this process.
+import { BodyCollector, encodeBody, nextId, sanitizeHeaders } from './capture/shared';
 import type { NetbridgeEvent } from './capture/shared';
 
 const MAX_EVENTS = 4000;
 // Hard cap on a single /ingest body: a buggy or runaway producer must never be
 // able to OOM the collector. Comfortably fits a batch of NDJSON capture events.
 const MAX_INGEST_BYTES = 16 * 1024 * 1024;
+// Cap on a /api/resend payload: an edited body plus headers fits comfortably.
+const MAX_RESEND_BYTES = 4 * 1024 * 1024;
+const RESEND_TIMEOUT_MS = 30_000;
+// Computed / hop-by-hop headers: fetch recomputes these, and a stale captured
+// value (content-length after a body edit, the original host) breaks the send.
+const DROP_ON_RESEND = new Set([
+  'host',
+  'content-length',
+  'connection',
+  'transfer-encoding',
+  'expect',
+  'upgrade',
+  'keep-alive',
+  'proxy-connection',
+  'accept-encoding',
+]);
+// Capture stores sensitive header values as this literal; sending it would be
+// guaranteed garbage auth, so such headers are dropped from the resend.
+const REDACTED_LITERAL = '«redacted»';
 
 export interface CollectorHandle {
   port: number;
@@ -26,6 +49,47 @@ export interface CollectorHandle {
 interface MergedRequest {
   id: string;
   [key: string]: unknown;
+}
+
+/**
+ * Read and JSON-parse a request body, bounded by `cap` bytes. Replies 413 on
+ * overflow and 400 on malformed JSON itself; calls `cb` only with valid JSON.
+ */
+function readJsonBody(
+  req: http.IncomingMessage,
+  res: http.ServerResponse,
+  cap: number,
+  cb: (payload: unknown) => void
+): void {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let tooLarge = false;
+  req.on('data', (c: Buffer) => {
+    if (tooLarge) return;
+    size += c.length;
+    if (size > cap) {
+      tooLarge = true;
+      res.writeHead(413).end();
+      req.destroy();
+      return;
+    }
+    chunks.push(c);
+  });
+  req.on('end', () => {
+    if (tooLarge) return;
+    let payload: unknown;
+    try {
+      payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
+    } catch {
+      res.writeHead(400, { 'content-type': 'application/json' });
+      res.end(JSON.stringify({ error: 'invalid JSON body' }));
+      return;
+    }
+    cb(payload);
+  });
+  req.on('error', () => {
+    /* client vanished mid-send — nothing to clean up */
+  });
 }
 
 export function startCollector(preferredPort: number): Promise<CollectorHandle> {
@@ -92,6 +156,96 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     }
 
     broadcast(`data: ${JSON.stringify(event)}\n\n`);
+  }
+
+  interface ResendSpec {
+    method: string;
+    url: string;
+    headers: Record<string, string>;
+    body?: string;
+    bodyEncoding?: 'utf8' | 'base64';
+    replayOf?: string;
+  }
+
+  // Re-issue a request from the collector process. The capture layer only
+  // instruments the app process, so replay events are synthesized here and
+  // routed through record() to reach the buffer and the live UI.
+  async function executeResend(spec: ResendSpec): Promise<string> {
+    const id = nextId();
+    const started = Date.now();
+    const sendHeaders: Record<string, string> = {};
+    for (const [k, v] of Object.entries(spec.headers)) {
+      const lower = k.toLowerCase();
+      if (DROP_ON_RESEND.has(lower) || v === REDACTED_LITERAL) continue;
+      sendHeaders[lower] = v;
+    }
+    // undici throws on GET/HEAD bodies.
+    const hasBody = spec.body != null && !['GET', 'HEAD'].includes(spec.method);
+    record({
+      id,
+      phase: 'start',
+      ts: started,
+      pid: process.pid,
+      source: 'replay',
+      method: spec.method,
+      url: spec.url,
+      // Re-sanitize for the store: a user-re-entered token goes on the wire
+      // but must never sit unredacted in the buffer or the SSE stream.
+      reqHeaders: sanitizeHeaders(sendHeaders),
+      ...(hasBody ? { reqBody: spec.body, reqBodyEncoding: spec.bodyEncoding ?? 'utf8' } : {}),
+      ...(spec.replayOf ? { replayOf: spec.replayOf } : {}),
+    } as NetbridgeEvent);
+    try {
+      const res = await fetch(spec.url, {
+        method: spec.method,
+        headers: sendHeaders,
+        body: hasBody
+          ? spec.bodyEncoding === 'base64'
+            ? Buffer.from(spec.body as string, 'base64')
+            : spec.body
+          : undefined,
+        // Show the true wire response (a 302 stays a 302), don't follow.
+        redirect: 'manual',
+        signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
+      });
+      const bodyCollector = new BodyCollector();
+      if (res.body) {
+        for await (const chunk of res.body) {
+          bodyCollector.push(chunk);
+          if (bodyCollector.truncated) break; // break auto-cancels the stream
+        }
+      }
+      const encoded = bodyCollector.isEmpty ? null : encodeBody(bodyCollector.buffer());
+      record({
+        id,
+        phase: 'end',
+        ts: Date.now(),
+        pid: process.pid,
+        source: 'replay',
+        method: spec.method,
+        url: spec.url,
+        status: res.status,
+        statusText: res.statusText,
+        resHeaders: sanitizeHeaders(Object.fromEntries(res.headers)),
+        ...(encoded ? { resBody: encoded.body, resBodyEncoding: encoded.encoding } : {}),
+        ...(bodyCollector.truncated ? { resBodyTruncated: true } : {}),
+        durationMs: Date.now() - started,
+      } as NetbridgeEvent);
+    } catch (err) {
+      const cause = (err as { cause?: { code?: string; message?: string } })?.cause;
+      record({
+        id,
+        phase: 'error',
+        ts: Date.now(),
+        pid: process.pid,
+        source: 'replay',
+        method: spec.method,
+        url: spec.url,
+        error: String(cause?.code || cause?.message || (err as Error)?.message || err),
+        durationMs: Date.now() - started,
+      } as NetbridgeEvent);
+    }
+    return id;
   }
 
   const server = http.createServer((req, res) => {
@@ -186,6 +340,60 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
       merged.clear();
       broadcast(`event: clear\ndata: {}\n\n`);
       res.writeHead(204).end();
+      return;
+    }
+
+    if (req.method === 'POST' && url === '/api/resend') {
+      readJsonBody(req, res, MAX_RESEND_BYTES, (payload) => {
+        const fail = (code: number, error: string) => {
+          res.writeHead(code, { 'content-type': 'application/json' });
+          res.end(JSON.stringify({ error }));
+        };
+        if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+          fail(400, 'invalid JSON body');
+          return;
+        }
+        const p = payload as Record<string, unknown>;
+        const base = p.id != null ? merged.get(String(p.id)) : undefined;
+        if (p.id != null && !base) {
+          fail(404, `unknown request id: ${String(p.id)}`);
+          return;
+        }
+        const method = String(p.method ?? base?.method ?? '').toUpperCase();
+        if (!/^[A-Z][A-Z-]*$/.test(method)) {
+          fail(400, 'invalid or missing method');
+          return;
+        }
+        const target = String(p.url ?? base?.url ?? '');
+        try {
+          const u = new URL(target);
+          if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error();
+        } catch {
+          fail(400, 'invalid or missing url (http/https only)');
+          return;
+        }
+        const spec: ResendSpec = {
+          method,
+          url: target,
+          headers: (p.headers ?? base?.reqHeaders ?? {}) as Record<string, string>,
+          body: p.body !== undefined ? String(p.body) : (base?.reqBody as string | undefined),
+          bodyEncoding:
+            p.body !== undefined
+              ? p.bodyEncoding === 'base64'
+                ? 'base64'
+                : 'utf8'
+              : (base?.reqBodyEncoding as 'utf8' | 'base64' | undefined),
+          replayOf: p.id != null ? String(p.id) : undefined,
+        };
+        // Both success and network failure are recorded entries — reply 200
+        // with the settled entry either way so callers get the result inline.
+        executeResend(spec)
+          .then((newId) => {
+            res.writeHead(200, { 'content-type': 'application/json' });
+            res.end(JSON.stringify(merged.get(newId) ?? { id: newId }));
+          })
+          .catch(() => fail(500, 'resend failed'));
+      });
       return;
     }
 

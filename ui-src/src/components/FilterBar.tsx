@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { CapturedRequest } from '../types';
-import type { StatusClass } from '../lib';
+import type { StatusClass } from '../filter';
 
 // Status chips carry a color class so an active chip reads like the table.
 const STATUS_ITEMS: { value: StatusClass; cls: string }[] = [

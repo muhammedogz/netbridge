@@ -25,3 +25,11 @@ export type WireEvent = Partial<CapturedRequest> & {
   id: string;
   phase?: 'start' | 'end' | 'error';
 };
+
+/** GET /api/config: CLI options that shape the UI's starting view. */
+export interface ViewConfig {
+  /** `--exclude` patterns to seed the filter box with. */
+  exclude: string[];
+  /** When the collector started; tells netbridge runs apart. */
+  startedAt: number;
+}

@@ -51,62 +51,6 @@ export function headersText(obj?: Record<string, string>): string {
     .join('\n');
 }
 
-// ---------------------------------------------------------------------------
-// Filtering — every whitespace-separated term must match (case-insensitive
-// substring) somewhere in metadata, headers, or utf8 bodies.
-// ---------------------------------------------------------------------------
-
-/** One lower-cased searchable string per row: metadata, headers, utf8 bodies. */
-function haystack(r: CapturedRequest): string {
-  let hay = `${r.method} ${r.url} ${r.status || ''} ${r.source || ''}`;
-  for (const h of [r.reqHeaders, r.resHeaders]) {
-    for (const [k, v] of Object.entries(h || {})) hay += ` ${k}: ${v}`;
-  }
-  // base64 (binary) bodies are excluded: matches inside base64 text are noise.
-  if (r.reqBody != null && r.reqBodyEncoding !== 'base64') hay += ` ${r.reqBody}`;
-  if (r.resBody != null && r.resBodyEncoding !== 'base64') hay += ` ${r.resBody}`;
-  return hay.toLowerCase();
-}
-
-export function matchesFilter(r: CapturedRequest, query: string): boolean {
-  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (terms.length === 0) return true;
-  const hay = haystack(r);
-  return terms.every((t) => hay.includes(t));
-}
-
-// ---------------------------------------------------------------------------
-// Structured filters — chip toggles ANDed with the text query. Within one
-// dimension selected values are ORed; an empty dimension matches everything.
-// ---------------------------------------------------------------------------
-
-export type StatusClass = '2xx' | '3xx' | '4xx' | '5xx' | 'error' | 'pending';
-
-export interface StructuredFilter {
-  methods: ReadonlySet<string>;
-  statuses: ReadonlySet<StatusClass>;
-  sources: ReadonlySet<string>;
-}
-
-export function statusClassOf(r: CapturedRequest): StatusClass | null {
-  if (r.state === 'error') return 'error';
-  if (r.state === 'pending') return 'pending';
-  if (r.status != null && r.status >= 200 && r.status < 600) {
-    return `${Math.floor(r.status / 100)}xx` as StatusClass;
-  }
-  return null;
-}
-
-export function matchesStructured(r: CapturedRequest, f: StructuredFilter): boolean {
-  if (f.methods.size > 0 && !f.methods.has(r.method.toUpperCase())) return false;
-  if (f.statuses.size > 0) {
-    const cls = statusClassOf(r);
-    if (cls === null || !f.statuses.has(cls)) return false;
-  }
-  if (f.sources.size > 0 && !f.sources.has(r.source || '')) return false;
-  return true;
-}
-
 export async function copyText(text: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);

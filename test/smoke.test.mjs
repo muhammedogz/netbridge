@@ -3,9 +3,10 @@
  * asserts on the collector's /api/requests output.
  *
  * Covers: fetch GET/POST, http.get (gzip decompression), http.request POST,
- * header redaction, request/response body capture, error capture, both sources.
+ * header redaction, request/response body capture, error capture, both sources,
+ * --exclude reaching the UI config without affecting capture.
  */
-import { spawn } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import http from 'http';
 import zlib from 'zlib';
 import fs from 'fs';
@@ -62,7 +63,10 @@ await new Promise((r) => origin.listen(0, '127.0.0.1', r));
 const originPort = origin.address().port;
 
 // --- run CLI with fixture target ----------------------------------------
-const child = spawn(process.execPath, [CLI, '--port', String(NB_PORT), '--', process.execPath, TARGET], {
+// --exclude only seeds the UI filter: the /gzip request must still be captured.
+const EXCLUDE = ['/gzip', 'method:options'];
+const cliArgs = ['--exclude', EXCLUDE[0], '--port', String(NB_PORT), '--exclude', EXCLUDE[1]];
+const child = spawn(process.execPath, [CLI, ...cliArgs, '--', process.execPath, TARGET], {
   env: { ...process.env, TARGET_ORIGIN_PORT: String(originPort), NETBRIDGE_QUIET: '1' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
@@ -195,6 +199,14 @@ const health = await (await fetch(`http://127.0.0.1:${portA}/api/health`)).json(
 assert(health.app === 'netbridge', 'health endpoint identifies as netbridge');
 assert(typeof health.version === 'string' && health.version.length > 0, 'health endpoint reports version');
 assert(typeof health.requests === 'number', 'health endpoint reports request count');
+
+// --exclude patterns reach the UI through /api/config; capture is untouched
+const viewConfig = await (await fetch(`http://127.0.0.1:${portA}/api/config`)).json();
+assert(JSON.stringify(viewConfig.exclude) === JSON.stringify(EXCLUDE), 'config endpoint lists --exclude patterns');
+assert(typeof viewConfig.startedAt === 'number', 'config endpoint reports collector start time');
+assert(!!byUrl('/gzip', 'http'), '--exclude is view-only: excluded request still captured');
+const noPattern = spawnSync(process.execPath, [CLI, '--exclude', '--', process.execPath, TARGET], { encoding: 'utf8' });
+assert(noPattern.status === 1 && noPattern.stderr.includes('--exclude'), '--exclude without a pattern is rejected');
 
 // path traversal is rejected
 const evil = await fetch(`http://127.0.0.1:${portA}/..%2f..%2fpackage.json`);

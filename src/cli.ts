@@ -6,6 +6,7 @@
  *   netbridge <command...>        same (the -- is optional)
  *   netbridge init                add a dev:netbridge script to package.json
  *   netbridge --port 4500 -- ...  pick the UI port
+ *   netbridge --exclude X -- ...  start the UI with urls containing X hidden
  */
 import { spawn } from 'child_process';
 import * as fs from 'fs';
@@ -20,14 +21,21 @@ function printHelp(): void {
   console.log(`netbridge — the network tab your server never had
 
 Usage:
-  netbridge [--port N] [--] <command...>   run command with HTTP capture
-  netbridge                                pick what to run interactively (TTY)
-  netbridge init                           add dev:netbridge script to package.json
+  netbridge [options] [--] <command...>   run command with HTTP capture
+  netbridge [options]                     pick what to run interactively (TTY)
+  netbridge init                          add dev:netbridge script to package.json
+
+Options:
+  -p, --port N           UI port (default ${DEFAULT_PORT}, next free one if busy)
+  --exclude PATTERN      open the UI with requests whose url contains PATTERN
+                         hidden; also takes filter terms such as method:options.
+                         Repeatable. View only: everything is still captured.
 
 Examples:
   netbridge -- next dev
   netbridge -- pnpm dev
   netbridge --port 5000 -- node server.js
+  netbridge --exclude localhost:4318 -- pnpm dev
 
 Environment:
   NETBRIDGE_BODY_LIMIT   max captured body bytes per request (default 262144)
@@ -123,14 +131,31 @@ async function main(): Promise<void> {
   }
 
   let port = DEFAULT_PORT;
+  const exclude: string[] = [];
   let rest = [...argv];
-  if (rest[0] === '--port' || rest[0] === '-p') {
-    port = Number(rest[1]);
-    if (!Number.isInteger(port) || port <= 0 || port > 65535) {
-      console.error('[netbridge] invalid --port value');
-      process.exit(1);
+  // Options come first, in any order; the command starts at `--` or at the
+  // first word that isn't one of them.
+  for (;;) {
+    if (rest[0] === '--port' || rest[0] === '-p') {
+      port = Number(rest[1]);
+      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+        console.error('[netbridge] invalid --port value');
+        process.exit(1);
+      }
+      rest = rest.slice(2);
+    } else if (rest[0] === '--exclude') {
+      const pattern = rest[1];
+      // A single filter term: a leading "-" means the value is missing (or
+      // would read as a double negation), whitespace would split it in two.
+      if (!pattern || pattern.startsWith('-') || /\s/.test(pattern)) {
+        console.error('[netbridge] invalid --exclude value (one pattern, no spaces), e.g. --exclude localhost:4318');
+        process.exit(1);
+      }
+      exclude.push(pattern);
+      rest = rest.slice(2);
+    } else {
+      break;
     }
-    rest = rest.slice(2);
   }
   if (rest[0] === '--') rest = rest.slice(1);
 
@@ -147,7 +172,7 @@ async function main(): Promise<void> {
     }
   }
 
-  const collector = await startCollector(port);
+  const collector = await startCollector(port, { exclude });
 
   const preloadPath = path.join(__dirname, 'preload.js');
   const existingNodeOptions = process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : '';

@@ -1,7 +1,7 @@
 # request-filtering Specification
 
 ## Purpose
-Narrow the live request list to what the user is looking for: a free-text search over metadata, headers and text bodies, combined with structured chip filters for method, status class and source.
+Narrow the live request list to what the user is looking for, and hide what they don't want to see: a filter query (free text over metadata, headers and text bodies, keyed terms, `-` exclusions) that persists across reloads and can be seeded from the CLI, combined with structured chip filters for method, status class and source.
 ## Requirements
 ### Requirement: Structured filter chips
 
@@ -24,7 +24,7 @@ The UI SHALL provide toggleable filter chips for method (the common verbs GET/PO
 
 ### Requirement: Filter matches metadata, headers, and text bodies
 
-The filter input SHALL treat the entered text as whitespace-separated terms where every term must match (case-insensitive substring) at least one of: method, url, status, source, request/response header names or values, or request/response bodies whose captured encoding is `utf8`. Bodies with encoding `base64` SHALL NOT be searched.
+The filter input SHALL treat the entered text as whitespace-separated terms where every term must hold. A free-text term (one without a recognized key) matches when it is a case-insensitive substring of at least one of: method, url, status, source, request/response header names or values, or request/response bodies whose captured encoding is `utf8`. Bodies with encoding `base64` SHALL NOT be searched.
 
 #### Scenario: Term found only in a response body
 
@@ -40,6 +40,62 @@ The filter input SHALL treat the entered text as whitespace-separated terms wher
 
 - **WHEN** a request's response body is captured base64-encoded and its raw base64 text happens to contain the term
 - **THEN** that body does not cause a match
+
+### Requirement: Exclusions and keyed terms
+
+A leading `-` SHALL invert any term, hiding the rows it matches. A term of the form `key:value`, where the key is `url`, `host` (alias `domain`), `path`, `method`, `status` (alias `status-code`) or `source`, SHALL match only that attribute: `url`, `host` (including the port) and `path` (including the query string) by case-insensitive substring; `method` and `source` by case-insensitive equality; `status` by response code, where `x` matches any digit and a shorter value matches as a prefix, or by the row state `error` or `pending`. A term with any other key SHALL be treated as free text. Incomplete terms (a lone `-`, a key with no value) SHALL be ignored, and no input SHALL throw.
+
+#### Scenario: Hide a telemetry collector
+
+- **WHEN** the filter is `-host:localhost:4318`
+- **THEN** requests to `http://localhost:4318/...` are hidden and every other request remains, including ones that mention `localhost:4318` in a body
+
+#### Scenario: Free-text exclusion
+
+- **WHEN** the filter is `-localhost:4318`
+- **THEN** exactly the rows that the free-text term `localhost:4318` would show are hidden
+
+#### Scenario: Keyed terms combine
+
+- **WHEN** the filter is `-host:localhost:4318 method:post status:5xx`
+- **THEN** only POST requests with a 5xx status to hosts other than `localhost:4318` remain
+
+#### Scenario: Incomplete input
+
+- **WHEN** the filter is `status:` or `-`
+- **THEN** the term is ignored and no row is hidden by it
+
+### Requirement: Hidden requests are accounted for
+
+While a filter hides requests, the count SHALL expose how many are hidden (on hover), and when every captured request is hidden the list SHALL say so instead of looking empty.
+
+#### Scenario: Everything filtered out
+
+- **WHEN** 80 requests are captured and none matches the filter
+- **THEN** the list reads that no requests match the filter and that 80 are hidden
+
+### Requirement: Filter persists across reloads
+
+The filter text SHALL be saved to `localStorage` on every change and restored on load. Storage failures SHALL be ignored.
+
+#### Scenario: Reload keeps the filter
+
+- **WHEN** the filter is `-host:localhost:4318` and the page is reloaded
+- **THEN** the input still reads `-host:localhost:4318` and the same rows are hidden
+
+### Requirement: CLI exclusions seed the filter
+
+`netbridge --exclude <pattern>` (repeatable) SHALL make the UI start with one exclusion term per pattern in the filter: a pattern that parses as a keyed term is negated as given, any other pattern becomes `-url:<pattern>`. The collector SHALL expose the patterns and its start time at `GET /api/config`, and the UI SHALL read them before its first render and merge missing terms into the saved filter once per collector run. Exclusion is view-only: capture, export and the API are unaffected.
+
+#### Scenario: Seeded from the command line
+
+- **WHEN** netbridge starts with `--exclude localhost:4318` and the saved filter is `method:post`
+- **THEN** the UI opens with the filter `-url:localhost:4318 method:post` and requests to that url never appear in the list
+
+#### Scenario: User edits win within a run
+
+- **WHEN** the user deletes the seeded term and reloads the page
+- **THEN** the term stays deleted until netbridge is started again
 
 ### Requirement: Filtering never blocks typing
 

@@ -86,6 +86,23 @@ export interface StructuredFilter {
   methods: ReadonlySet<string>;
   statuses: ReadonlySet<StatusClass>;
   sources: ReadonlySet<string>;
+  /** Inclusive duration bounds in ms; null leaves that side open. */
+  minMs: number | null;
+  maxMs: number | null;
+}
+
+/**
+ * Parse a duration bound: "500", "500ms", "1s", "1.5 s" → ms. Bare numbers are
+ * ms. Returns null for empty or unparseable input (i.e. no bound).
+ */
+export function parseDurationMs(input: string): number | null {
+  const m = input
+    .trim()
+    .toLowerCase()
+    .match(/^(\d+(?:\.\d+)?|\.\d+)\s*(ms|s)?$/);
+  if (!m) return null;
+  const n = Number(m[1]);
+  return m[2] === 's' ? n * 1000 : n;
 }
 
 export function statusClassOf(r: CapturedRequest): StatusClass | null {
@@ -104,6 +121,13 @@ export function matchesStructured(r: CapturedRequest, f: StructuredFilter): bool
     if (cls === null || !f.statuses.has(cls)) return false;
   }
   if (f.sources.size > 0 && !f.sources.has(r.source || '')) return false;
+  if (f.minMs != null || f.maxMs != null) {
+    // Pending rows have no duration yet, so they never satisfy a bound.
+    const d = r.durationMs;
+    if (d == null) return false;
+    if (f.minMs != null && d < f.minMs) return false;
+    if (f.maxMs != null && d > f.maxMs) return false;
+  }
   return true;
 }
 

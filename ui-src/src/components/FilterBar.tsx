@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import type { CapturedRequest } from '../types';
-import type { StatusClass } from '../lib';
+import { parseDurationMs, type StatusClass } from '../lib';
 
 // Status chips carry a color class so an active chip reads like the table.
 const STATUS_ITEMS: { value: StatusClass; cls: string }[] = [
@@ -37,14 +37,46 @@ function Chip({
   );
 }
 
+function DurationInput({
+  value,
+  bad,
+  placeholder,
+  title,
+  onChange,
+}: {
+  value: string;
+  bad: boolean;
+  placeholder: string;
+  title: string;
+  onChange: (v: string) => void;
+}) {
+  const set = value.trim() !== '';
+  return (
+    <input
+      type="text"
+      inputMode="decimal"
+      className={bad ? 'invalid' : set ? 'set' : ''}
+      placeholder={placeholder}
+      title={title}
+      aria-label={title}
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
+    />
+  );
+}
+
 interface Props {
   requests: CapturedRequest[];
   methods: ReadonlySet<string>;
   statuses: ReadonlySet<StatusClass>;
   sources: ReadonlySet<string>;
+  durMin: string;
+  durMax: string;
   onToggleMethod: (m: string) => void;
   onToggleStatus: (s: StatusClass) => void;
   onToggleSource: (s: string) => void;
+  onDurMin: (v: string) => void;
+  onDurMax: (v: string) => void;
   onClear: () => void;
 }
 
@@ -53,9 +85,13 @@ export function FilterBar({
   methods,
   statuses,
   sources,
+  durMin,
+  durMax,
   onToggleMethod,
   onToggleStatus,
   onToggleSource,
+  onDurMin,
+  onDurMax,
   onClear,
 }: Props) {
   // Common verbs always; unusual ones (HEAD, OPTIONS, …) only once captured.
@@ -70,7 +106,14 @@ export function FilterBar({
     return [...BASE_METHODS, ...[...extra].sort()];
   }, [requests, methods]);
 
-  const anyActive = methods.size + statuses.size + sources.size > 0;
+  // Unparseable text, or min above max, is flagged and ignored by the filter.
+  const minMs = parseDurationMs(durMin);
+  const maxMs = parseDurationMs(durMax);
+  const inverted = minMs != null && maxMs != null && minMs > maxMs;
+  const minBad = (durMin.trim() !== '' && minMs == null) || inverted;
+  const maxBad = (durMax.trim() !== '' && maxMs == null) || inverted;
+
+  const anyActive = methods.size + statuses.size + sources.size > 0 || !!durMin.trim() || !!durMax.trim();
 
   return (
     <div id="filterbar">
@@ -85,6 +128,25 @@ export function FilterBar({
       {SOURCES.map((s) => (
         <Chip key={s} label={s} on={sources.has(s)} onToggle={() => onToggleSource(s)} />
       ))}
+      <span className="chip-sep" />
+      <span className="dur">
+        time
+        <DurationInput
+          value={durMin}
+          bad={minBad}
+          placeholder="min"
+          title="at least this long, e.g. 500, 500ms, 1.5s"
+          onChange={onDurMin}
+        />
+        –
+        <DurationInput
+          value={durMax}
+          bad={maxBad}
+          placeholder="max"
+          title="at most this long, e.g. 500, 500ms, 1.5s"
+          onChange={onDurMax}
+        />
+      </span>
       {anyActive && (
         <button className="chip reset" onClick={onClear}>
           ✕ reset

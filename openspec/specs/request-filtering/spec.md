@@ -22,6 +22,25 @@ The UI SHALL provide toggleable filter chips for method (the common verbs GET/PO
 - **WHEN** an `OPTIONS` request is captured
 - **THEN** an `OPTIONS` chip appears alongside the common verbs
 
+### Requirement: Duration range filter
+
+The filter bar SHALL provide a minimum and a maximum duration input. Each accepts a number of milliseconds with an optional unit (`500`, `500ms`, `1s`, `1.5s`); an empty input leaves that side of the range open. A request matches when its duration is at least the minimum and at most the maximum (both inclusive). The duration filter is ANDed with the chips and the text filter. Requests without a duration (still pending) SHALL NOT match while any bound is set. An unparseable input, or a minimum greater than the maximum, SHALL be visibly flagged and ignored. The reset control SHALL also clear both inputs.
+
+#### Scenario: Bounded range
+
+- **WHEN** min is `100ms` and max is `500ms`
+- **THEN** only requests that took 100–500 ms remain
+
+#### Scenario: Open-ended bound
+
+- **WHEN** only max is set to `1s`
+- **THEN** only requests that took at most 1000 ms remain, and pending requests are hidden
+
+#### Scenario: Invalid input
+
+- **WHEN** min is `fast`
+- **THEN** the min input is flagged and the list is not narrowed by it
+
 ### Requirement: Filter matches metadata, headers, and text bodies
 
 The filter input SHALL treat the entered text as whitespace-separated terms where every term must match (case-insensitive substring) at least one of: method, url, status, source, request/response header names or values, or request/response bodies whose captured encoding is `utf8`. Bodies with encoding `base64` SHALL NOT be searched.

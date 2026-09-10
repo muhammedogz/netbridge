@@ -12,6 +12,7 @@ import {
   downloadBlob,
   matchesFilter,
   matchesStructured,
+  parseDurationMs,
   type StatusClass,
 } from './lib';
 import type { CapturedRequest } from './types';
@@ -29,19 +30,26 @@ export function App() {
   const [methods, setMethods] = useState<ReadonlySet<string>>(new Set());
   const [statuses, setStatuses] = useState<ReadonlySet<StatusClass>>(new Set());
   const [sources, setSources] = useState<ReadonlySet<string>>(new Set());
+  const [durMin, setDurMin] = useState('');
+  const [durMax, setDurMax] = useState('');
   const [selectedId, setSelectedId] = useState<string | null>(null);
   // Defer the expensive scan (bodies can total hundreds of MB) so keystrokes
   // render immediately and the row list catches up a frame later.
   const deferredFilter = useDeferredValue(filterText);
 
-  const anyStructured = methods.size + statuses.size + sources.size > 0;
+  // An inverted range (min > max) is flagged in the bar and ignored here.
+  let minMs = parseDurationMs(durMin);
+  let maxMs = parseDurationMs(durMax);
+  if (minMs != null && maxMs != null && minMs > maxMs) minMs = maxMs = null;
+
+  const anyStructured = methods.size + statuses.size + sources.size > 0 || minMs != null || maxMs != null;
 
   const filtered = useMemo(() => {
-    const structured = { methods, statuses, sources };
+    const structured = { methods, statuses, sources, minMs, maxMs };
     const base = anyStructured ? requests.filter((r) => matchesStructured(r, structured)) : requests;
     if (!deferredFilter.trim()) return base;
     return base.filter((r) => matchesFilter(r, deferredFilter));
-  }, [requests, deferredFilter, methods, statuses, sources, anyStructured]);
+  }, [requests, deferredFilter, methods, statuses, sources, minMs, maxMs, anyStructured]);
 
   // Escape: leave the filter box first, then close the detail pane. Open
   // dropdown menus own the key themselves and must not also close the pane.
@@ -124,13 +132,19 @@ export function App() {
         methods={methods}
         statuses={statuses}
         sources={sources}
+        durMin={durMin}
+        durMax={durMax}
         onToggleMethod={(m) => setMethods((s) => toggled(s, m))}
         onToggleStatus={(st) => setStatuses((s) => toggled(s, st))}
         onToggleSource={(src) => setSources((s) => toggled(s, src))}
+        onDurMin={setDurMin}
+        onDurMax={setDurMax}
         onClear={() => {
           setMethods(new Set());
           setStatuses(new Set());
           setSources(new Set());
+          setDurMin('');
+          setDurMax('');
         }}
       />
       <main>

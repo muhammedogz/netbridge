@@ -125,7 +125,7 @@ The endpoints, all on `127.0.0.1`:
 | `GET /api/health` | `{ app: "netbridge", version, requests }`, lets scripts find a running collector |
 | `GET /events` | SSE stream: a `snapshot` event, then live capture events |
 | `POST /api/clear` | resets the capture buffer |
-| `POST /api/resend` | re-issues a captured request; `{"id"}` resends as-is, add `method`/`url`/`headers`/`body` to resend with edits; returns the settled replay entry |
+| `POST /api/resend` | re-issues a captured request; `{"id"}` resends as-is, add `method`/`url`/`headers`/`body` to resend with edits; requires `content-type: application/json`; returns the settled replay entry |
 
 ## Replay
 

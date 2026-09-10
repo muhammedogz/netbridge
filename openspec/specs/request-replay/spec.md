@@ -6,7 +6,7 @@ Re-issue a captured (optionally edited) request from the collector and record th
 ## Requirements
 ### Requirement: Resend endpoint
 
-The collector SHALL expose `POST /api/resend` accepting JSON `{ id?, method?, url?, headers?, body?, bodyEncoding? }`. When `id` is present the stored entry SHALL serve as the base with provided fields overriding it; without `id`, `method` and `url` SHALL be required. The endpoint SHALL reject an unknown `id` with 404 and an invalid method or non-`http(s)` URL with 400, SHALL await the replay settling (bounded by a timeout), and SHALL respond 200 with the settled replay entry — for network failures too, since those are recorded entries.
+The collector SHALL expose `POST /api/resend` accepting JSON `{ id?, method?, url?, headers?, body?, bodyEncoding? }`. When `id` is present the stored entry SHALL serve as the base with provided fields overriding it; without `id`, `method` and `url` SHALL be required. The endpoint SHALL reject an unknown `id` with 404 and an invalid method or non-`http(s)` URL with 400, SHALL await the replay settling (bounded by a timeout), and SHALL respond 200 with the settled replay entry — for network failures too, since those are recorded entries. The endpoint SHALL require `content-type: application/json` (415 otherwise) and SHALL reject a request whose `Origin` header is present and not local (403), so a cross-site page cannot make the collector issue requests. `headers` SHALL be validated (flat object, RFC 9110 token names, primitive CR/LF-free values — 400 otherwise); `body` SHALL be a string, or `null` to send no body, or absent to inherit the captured body including its `reqBodyTruncated` flag.
 
 #### Scenario: Resend as-is
 
@@ -22,6 +22,11 @@ The collector SHALL expose `POST /api/resend` accepting JSON `{ id?, method?, ur
 
 - **WHEN** the payload names an id not in the buffer, or a `file://` URL, or omits both `id` and `url`
 - **THEN** the endpoint responds 404 (unknown id) or 400 (invalid method/url) with a JSON `{ "error": ... }` body and no request is sent
+
+#### Scenario: Cross-site page cannot trigger a resend
+
+- **WHEN** a POST arrives with `Origin: https://evil.example` or without `content-type: application/json`
+- **THEN** the endpoint responds 403 (foreign origin) or 415 (wrong content-type) and no request is sent
 
 ### Requirement: Replay entries are first-class captures
 

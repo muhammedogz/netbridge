@@ -51,6 +51,14 @@ interface MergedRequest {
   [key: string]: unknown;
 }
 
+function jsonError(res: http.ServerResponse, code: number, error: string): void {
+  res.writeHead(code, { 'content-type': 'application/json' });
+  res.end(JSON.stringify({ error }));
+}
+
+// RFC 9110 token: the only characters legal in an HTTP header name.
+const HEADER_NAME = /^[!#$%&'*+.^_`|~0-9A-Za-z-]+$/;
+
 /**
  * Read and JSON-parse a request body, bounded by `cap` bytes. Replies 413 on
  * overflow and 400 on malformed JSON itself; calls `cb` only with valid JSON.
@@ -81,8 +89,7 @@ function readJsonBody(
     try {
       payload = JSON.parse(Buffer.concat(chunks).toString('utf8'));
     } catch {
-      res.writeHead(400, { 'content-type': 'application/json' });
-      res.end(JSON.stringify({ error: 'invalid JSON body' }));
+      jsonError(res, 400, 'invalid JSON body');
       return;
     }
     cb(payload);
@@ -164,6 +171,8 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     headers: Record<string, string>;
     body?: string;
     bodyEncoding?: 'utf8' | 'base64';
+    /** The inherited captured body was truncated: the replay is lossy. */
+    bodyTruncated?: boolean;
     replayOf?: string;
   }
 
@@ -193,6 +202,8 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
       // but must never sit unredacted in the buffer or the SSE stream.
       reqHeaders: sanitizeHeaders(sendHeaders),
       ...(hasBody ? { reqBody: spec.body, reqBodyEncoding: spec.bodyEncoding ?? 'utf8' } : {}),
+      // Mark a lossy replay: the sent body is the truncated captured prefix.
+      ...(hasBody && spec.bodyTruncated ? { reqBodyTruncated: true } : {}),
       ...(spec.replayOf ? { replayOf: spec.replayOf } : {}),
     } as NetbridgeEvent);
     try {
@@ -344,24 +355,46 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     }
 
     if (req.method === 'POST' && url === '/api/resend') {
+      // CSRF guard. This endpoint makes the collector issue outbound requests,
+      // so a drive-by page must not be able to trigger it. Two layers:
+      // - a present Origin header must be local (the UI is same-origin; a
+      //   browser always attaches Origin to cross-site POSTs);
+      // - the content-type must be application/json, which cross-origin makes
+      //   a preflighted request — the preflight fails since we send no CORS
+      //   headers. curl/scripts without an Origin just set the header.
+      const origin = req.headers.origin;
+      if (origin) {
+        let local = false;
+        try {
+          const host = new URL(origin).hostname;
+          local = host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
+        } catch {
+          /* malformed Origin stays non-local */
+        }
+        if (!local) {
+          jsonError(res, 403, 'cross-origin resend rejected');
+          return;
+        }
+      }
+      const ctype = String(req.headers['content-type'] || '');
+      if (!/^application\/json\b/i.test(ctype.trim())) {
+        jsonError(res, 415, 'content-type must be application/json');
+        return;
+      }
       readJsonBody(req, res, MAX_RESEND_BYTES, (payload) => {
-        const fail = (code: number, error: string) => {
-          res.writeHead(code, { 'content-type': 'application/json' });
-          res.end(JSON.stringify({ error }));
-        };
         if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
-          fail(400, 'invalid JSON body');
+          jsonError(res, 400, 'invalid JSON body');
           return;
         }
         const p = payload as Record<string, unknown>;
         const base = p.id != null ? merged.get(String(p.id)) : undefined;
         if (p.id != null && !base) {
-          fail(404, `unknown request id: ${String(p.id)}`);
+          jsonError(res, 404, `unknown request id: ${String(p.id)}`);
           return;
         }
         const method = String(p.method ?? base?.method ?? '').toUpperCase();
         if (!/^[A-Z][A-Z-]*$/.test(method)) {
-          fail(400, 'invalid or missing method');
+          jsonError(res, 400, 'invalid or missing method');
           return;
         }
         const target = String(p.url ?? base?.url ?? '');
@@ -369,20 +402,63 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
           const u = new URL(target);
           if (u.protocol !== 'http:' && u.protocol !== 'https:') throw new Error();
         } catch {
-          fail(400, 'invalid or missing url (http/https only)');
+          jsonError(res, 400, 'invalid or missing url (http/https only)');
           return;
+        }
+        // Headers: only a flat object of primitive values, names limited to
+        // RFC 9110 tokens, values without CR/LF — anything else is a caller
+        // bug that must surface as a 400, not as garbage on the wire.
+        let headers: Record<string, string>;
+        if (p.headers !== undefined) {
+          if (!p.headers || typeof p.headers !== 'object' || Array.isArray(p.headers)) {
+            jsonError(res, 400, 'headers must be an object of string values');
+            return;
+          }
+          headers = {};
+          for (const [k, v] of Object.entries(p.headers)) {
+            if (!HEADER_NAME.test(k)) {
+              jsonError(res, 400, `invalid header name: ${JSON.stringify(k)}`);
+              return;
+            }
+            if (typeof v !== 'string' && typeof v !== 'number' && typeof v !== 'boolean') {
+              jsonError(res, 400, `header ${JSON.stringify(k)} must be a string`);
+              return;
+            }
+            const value = String(v);
+            if (/[\r\n]/.test(value)) {
+              jsonError(res, 400, `invalid header value for ${JSON.stringify(k)}`);
+              return;
+            }
+            headers[k] = value;
+          }
+        } else {
+          headers = (base?.reqHeaders as Record<string, string> | undefined) ?? {};
+        }
+        // Body: a string, null (send no body, even if the original had one),
+        // or absent (inherit the captured body, including its truncation).
+        let body: string | undefined;
+        let bodyEncoding: 'utf8' | 'base64' | undefined;
+        let bodyTruncated = false;
+        if (p.body === null) {
+          body = undefined;
+        } else if (typeof p.body === 'string') {
+          body = p.body;
+          bodyEncoding = p.bodyEncoding === 'base64' ? 'base64' : 'utf8';
+        } else if (p.body !== undefined) {
+          jsonError(res, 400, 'body must be a string (or null for no body)');
+          return;
+        } else {
+          body = base?.reqBody as string | undefined;
+          bodyEncoding = base?.reqBodyEncoding as 'utf8' | 'base64' | undefined;
+          bodyTruncated = base?.reqBodyTruncated === true;
         }
         const spec: ResendSpec = {
           method,
           url: target,
-          headers: (p.headers ?? base?.reqHeaders ?? {}) as Record<string, string>,
-          body: p.body !== undefined ? String(p.body) : (base?.reqBody as string | undefined),
-          bodyEncoding:
-            p.body !== undefined
-              ? p.bodyEncoding === 'base64'
-                ? 'base64'
-                : 'utf8'
-              : (base?.reqBodyEncoding as 'utf8' | 'base64' | undefined),
+          headers,
+          body,
+          bodyEncoding,
+          bodyTruncated,
           replayOf: p.id != null ? String(p.id) : undefined,
         };
         // Both success and network failure are recorded entries — reply 200
@@ -392,7 +468,7 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
             res.writeHead(200, { 'content-type': 'application/json' });
             res.end(JSON.stringify(merged.get(newId) ?? { id: newId }));
           })
-          .catch(() => fail(500, 'resend failed'));
+          .catch(() => jsonError(res, 500, 'resend failed'));
       });
       return;
     }

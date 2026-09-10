@@ -4,7 +4,8 @@
  *
  * Covers: fetch GET/POST, http.get (gzip decompression), http.request POST,
  * header redaction, request/response body capture, error capture, both sources,
- * request replay (/api/resend: as-is, edited, redaction, errors, validation).
+ * request replay (/api/resend: as-is, edited, redaction, errors, validation,
+ * CSRF guards).
  */
 import { spawn } from 'child_process';
 import http from 'http';
@@ -252,6 +253,47 @@ assert(
   'resend of non-http url rejected with 400'
 );
 assert((await resend({ method: 'GET' })).status === 400, 'resend without url rejected with 400');
+
+// hardening: CSRF guards and payload validation
+const rawResend = (headers, body) =>
+  fetch(`http://127.0.0.1:${portA}/api/resend`, { method: 'POST', headers, body });
+assert(
+  (await rawResend({ 'content-type': 'text/plain' }, JSON.stringify({ id: fetchPost?.id }))).status === 415,
+  'resend without json content-type rejected with 415'
+);
+assert(
+  (
+    await rawResend(
+      { 'content-type': 'application/json', origin: 'https://evil.example' },
+      JSON.stringify({ id: fetchPost?.id })
+    )
+  ).status === 403,
+  'resend from a foreign Origin rejected with 403'
+);
+assert(
+  (
+    await rawResend(
+      { 'content-type': 'application/json', origin: `http://127.0.0.1:${portA}` },
+      JSON.stringify({ id: fetchPost?.id })
+    )
+  ).status === 200,
+  'resend from the local origin allowed'
+);
+// invalid header names/values travel inside the JSON payload, not as real headers
+assert(
+  (await resend({ id: fetchPost?.id, headers: { 'bad name': 'x' } })).status === 400,
+  'resend with an invalid header name rejected with 400'
+);
+assert(
+  (await resend({ id: fetchPost?.id, headers: { 'x-ok': { nested: true } } })).status === 400,
+  'resend with a non-primitive header value rejected with 400'
+);
+assert(
+  (await resend({ id: fetchPost?.id, body: { a: 1 } })).status === 400,
+  'resend with a non-string body rejected with 400'
+);
+const noBody = await (await resend({ id: fetchPost?.id, body: null })).json();
+assert(noBody.state === 'done' && noBody.reqBody === undefined, 'body:null resends without a body');
 
 // path traversal is rejected
 const evil = await fetch(`http://127.0.0.1:${portA}/..%2f..%2fpackage.json`);

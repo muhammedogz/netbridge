@@ -518,7 +518,7 @@ Read the capture:
 - GET  ${origin}/api/health     collector info: { app: "netbridge", version, requests }
 - GET  ${origin}/events         SSE stream (snapshot event, then live capture events)
 - POST ${origin}/api/clear      reset the capture buffer
-- POST ${origin}/api/resend     re-issue a captured request; body {"id"} resends as-is, {"id", "method"?, "url"?, "headers"?, "body"?} resends with edits; returns the settled replay entry (source "replay", replayOf links the original). Redacted header values are stripped before sending.
+- POST ${origin}/api/resend     re-issue a captured request; JSON body {"id"} resends as-is, {"id", "method"?, "url"?, "headers"?, "body"?} resends with edits ("body": null sends no body); returns the settled replay entry (source "replay", replayOf links the original). Requires the header "content-type: application/json" (e.g. curl -H). Redacted header values are stripped before sending.
 
 Example: \`curl -s ${origin}/api/requests\` shows exactly what the server sent and received. Use it to verify outbound calls, inspect payloads, and diagnose failures (entries with state "error", or status >= 400).
 

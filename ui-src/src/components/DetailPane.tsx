@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { CapturedRequest } from '../types';
 import { displayBody, downloadBlob, downloadBody, headersText, resendRequest } from '../lib';
 import { CopyButton } from './CopyButton';
@@ -83,29 +83,46 @@ export function DetailPane({
 }) {
   const [tab, setTab] = useState<Kind>('response');
   const [editing, setEditing] = useState(false);
-  const [resending, setResending] = useState(false);
+  // Id of the entry with a resend in flight — survives selection changes so
+  // the button state can't be reset out from under a pending send.
+  const [resendingId, setResendingId] = useState<string | null>(null);
   const [resendError, setResendError] = useState<string | null>(null);
+  // The entry currently on screen; in-flight resends check it when they
+  // settle so they never hijack the selection or mislabel another entry.
+  const currentIdRef = useRef<string | null>(null);
+  currentIdRef.current = r?.id ?? null;
 
   // Selecting another entry must not carry over an open editor or stale state.
   useEffect(() => {
     setEditing(false);
-    setResending(false);
     setResendError(null);
   }, [r?.id]);
 
-  // Success feedback is the selection jumping to the new replay entry.
+  // Success feedback is the selection jumping to the new replay entry —
+  // but only while the user is still looking at the entry they resent.
   const resendAsIs = async (id: string) => {
-    setResending(true);
+    setResendingId(id);
     setResendError(null);
     try {
       const entry = await resendRequest({ id });
-      onSelectEntry(entry.id);
+      if (currentIdRef.current === id) onSelectEntry(entry.id);
     } catch (err) {
-      setResendError(err instanceof Error ? err.message : String(err));
+      if (currentIdRef.current === id) {
+        setResendError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setResending(false);
+      setResendingId((cur) => (cur === id ? null : cur));
     }
   };
+
+  const asIsWarnings = r
+    ? [
+        r.reqBodyTruncated ? 'body was truncated at capture' : null,
+        Object.values(r.reqHeaders ?? {}).includes('«redacted»')
+          ? 'redacted header values will be dropped'
+          : null,
+      ].filter(Boolean)
+    : [];
 
   return (
     <div id="detail" className={r ? 'open' : ''}>
@@ -135,11 +152,14 @@ export function DetailPane({
             <CopyMenu r={r} />
             <button
               className="iconbtn"
-              title="re-issue this request unchanged"
-              disabled={resending}
+              title={
+                're-issue this request unchanged' +
+                (asIsWarnings.length ? ` — ${asIsWarnings.join('; ')}` : '')
+              }
+              disabled={resendingId === r.id}
               onClick={() => resendAsIs(r.id)}
             >
-              {resending ? 'sending…' : 'resend'}
+              {resendingId === r.id ? 'sending…' : 'resend'}
             </button>
             <button
               className="iconbtn"
@@ -185,7 +205,9 @@ export function DetailPane({
               onClose={() => setEditing(false)}
               onResent={(id) => {
                 setEditing(false);
-                onSelectEntry(id);
+                // A submit that settles after the user moved on must not
+                // yank the selection to the replay entry.
+                if (currentIdRef.current === r.id) onSelectEntry(id);
               }}
             />
           )}

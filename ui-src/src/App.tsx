@@ -1,21 +1,29 @@
 import { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useRequests } from './useRequests';
+import { useFilterText } from './useFilterText';
 import { RequestTable } from './components/RequestTable';
 import { ThemeToggle } from './components/ThemeToggle';
 import { DetailPane } from './components/DetailPane';
 import { ExportMenu, type ExportKind } from './components/ExportMenu';
 import { FilterBar } from './components/FilterBar';
 import { CopyButton } from './components/CopyButton';
+import { agentApiInstructions, buildHar, downloadBlob } from './lib';
 import {
-  agentApiInstructions,
-  buildHar,
-  downloadBlob,
   matchesFilter,
   matchesStructured,
   parseDurationMs,
+  parseFilter,
   type StatusClass,
-} from './lib';
-import type { CapturedRequest } from './types';
+} from './filter';
+import type { CapturedRequest, ViewConfig } from './types';
+
+const FILTER_HELP = [
+  'space-separated terms, all must match (case-insensitive)',
+  'text: url, method, status, headers, bodies',
+  '-term: hide what the term matches',
+  'url: host: path: method: status: source: match one attribute',
+  'e.g. -host:localhost:4318 method:post status:5xx',
+].join('\n');
 
 function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
   const next = new Set(set);
@@ -24,9 +32,9 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
   return next;
 }
 
-export function App() {
+export function App({ config }: { config: ViewConfig }) {
   const { requests, live, clearAll } = useRequests();
-  const [filterText, setFilterText] = useState('');
+  const [filterText, setFilterText] = useFilterText(config);
   const [methods, setMethods] = useState<ReadonlySet<string>>(new Set());
   const [statuses, setStatuses] = useState<ReadonlySet<StatusClass>>(new Set());
   const [sources, setSources] = useState<ReadonlySet<string>>(new Set());
@@ -36,6 +44,7 @@ export function App() {
   // Defer the expensive scan (bodies can total hundreds of MB) so keystrokes
   // render immediately and the row list catches up a frame later.
   const deferredFilter = useDeferredValue(filterText);
+  const terms = useMemo(() => parseFilter(deferredFilter), [deferredFilter]);
 
   // An inverted range (min > max) is flagged in the bar and ignored here.
   let minMs = parseDurationMs(durMin);
@@ -47,9 +56,10 @@ export function App() {
   const filtered = useMemo(() => {
     const structured = { methods, statuses, sources, minMs, maxMs };
     const base = anyStructured ? requests.filter((r) => matchesStructured(r, structured)) : requests;
-    if (!deferredFilter.trim()) return base;
-    return base.filter((r) => matchesFilter(r, deferredFilter));
-  }, [requests, deferredFilter, methods, statuses, sources, minMs, maxMs, anyStructured]);
+    if (terms.length === 0) return base;
+    return base.filter((r) => matchesFilter(r, terms));
+  }, [requests, terms, methods, statuses, sources, minMs, maxMs, anyStructured]);
+  const hidden = requests.length - filtered.length;
 
   // Escape: leave the filter box first, then close the detail pane. Open
   // dropdown menus own the key themselves and must not also close the pane.
@@ -103,11 +113,12 @@ export function App() {
         <input
           id="filter"
           type="text"
-          placeholder="filter by url, method, status, body…"
+          placeholder="filter… (-exclude, host:, method:, status:)"
+          title={FILTER_HELP}
           value={filterText}
           onChange={(e) => setFilterText(e.target.value)}
         />
-        <span id="count">
+        <span id="count" title={hidden > 0 ? `${hidden} hidden by the filter` : undefined}>
           {filterText || anyStructured ? `${filtered.length}/${requests.length}` : requests.length}
         </span>
         <CopyButton

@@ -6,6 +6,7 @@
  *   GET  /events        SSE stream of capture events (backlog + live)
  *   POST /ingest        NDJSON capture events from preloaded app processes
  *   GET  /api/requests  JSON dump of the merged request table
+ *   GET  /api/config    view settings for the UI (--exclude patterns)
  *   POST /api/clear     reset the buffer
  *   POST /api/resend    re-issue a captured (optionally edited) request
  */
@@ -44,6 +45,11 @@ const REDACTED_LITERAL = '«redacted»';
 export interface CollectorHandle {
   port: number;
   close(): void;
+}
+
+export interface CollectorOptions {
+  /** `--exclude` patterns the UI seeds its filter box with (view only). */
+  exclude?: string[];
 }
 
 interface MergedRequest {
@@ -99,9 +105,15 @@ function readJsonBody(
   });
 }
 
-export function startCollector(preferredPort: number): Promise<CollectorHandle> {
+export function startCollector(
+  preferredPort: number,
+  options: CollectorOptions = {}
+): Promise<CollectorHandle> {
   const merged = new Map<string, MergedRequest>();
   const sseClients = new Set<http.ServerResponse>();
+  // startedAt tells runs apart: the UI merges the exclusions into its saved
+  // filter once per run, so a reload doesn't undo the user's edits.
+  const viewConfig = JSON.stringify({ exclude: options.exclude ?? [], startedAt: Date.now() });
 
   const uiDir = path.join(__dirname, '..', 'ui');
   const MIME: Record<string, string> = {
@@ -344,6 +356,12 @@ export function startCollector(preferredPort: number): Promise<CollectorHandle> 
     if (req.method === 'GET' && url === '/api/requests') {
       res.writeHead(200, { 'content-type': 'application/json' });
       res.end(JSON.stringify([...merged.values()]));
+      return;
+    }
+
+    if (req.method === 'GET' && url === '/api/config') {
+      res.writeHead(200, { 'content-type': 'application/json' });
+      res.end(viewConfig);
       return;
     }
 

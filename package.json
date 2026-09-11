@@ -43,7 +43,7 @@
     "dev:ui": "vite --config ui-src/vite.config.ts",
     "prepack": "npm run build",
     "prepublishOnly": "npm run build",
-    "test": "node test/smoke.test.mjs"
+    "test": "node test/filter.test.mjs && node test/smoke.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.0.0",

@@ -42,19 +42,55 @@ netbridge -- pnpm dev
 netbridge -- node server.js
 netbridge -- npm run start:dev      # NestJS, Express, anything
 netbridge --port 5000 -- next dev   # custom UI port
+netbridge --exclude localhost:4318 -- pnpm dev   # hide OpenTelemetry exports in the UI
 ```
 
 ## The UI
 
 The request table shows method, url, status, timing, size, and which process made the call. It auto-scrolls with new traffic, but only while you're at the bottom.
 
-To narrow it down, the search box matches url, method, status, headers, and request/response bodies; space-separated terms must all match. Below it, chips toggle methods, status classes (`2xx` `3xx` `4xx` `5xx` `error` `pending`), and source (`fetch`/`http`). Chips in the same group are ORed, everything else is ANDed. Clicking `4xx` and `5xx` leaves only the failures. The `time` min/max boxes narrow by duration: `500` or `500ms` and `1s` or `1.5s` all work, and an empty box leaves that side open, so min `100ms` + max `500ms` gives a range, max `1s` alone shows everything up to a second, and min `500ms` alone shows only the slow ones.
+To narrow it down, the filter box matches url, method, status, headers, and request/response bodies; space-separated terms must all match, a leading `-` hides what a term matches, and keyed terms like `host:` target one attribute (see [Filtering](#filtering)). Below it, chips toggle methods, status classes (`2xx` `3xx` `4xx` `5xx` `error` `pending`), and source (`fetch`/`http`/`replay`). Chips in the same group are ORed, everything else is ANDed. Clicking `4xx` and `5xx` leaves only the failures. The `time` min/max boxes narrow by duration: `500` or `500ms` and `1s` or `1.5s` all work, and an empty box leaves that side open, so min `100ms` + max `500ms` gives a range, max `1s` alone shows everything up to a second, and min `500ms` alone shows only the slow ones.
 
-Clicking a row opens the detail pane: headers, pretty-printed bodies, copy and download per body. `Esc` closes it. If you're typing in the search box, the first `Esc` just leaves the box.
+Clicking a row opens the detail pane: headers, pretty-printed bodies, copy and download per body. `Esc` closes it. If you're typing in the filter box, the first `Esc` just leaves the box.
 
 "copy request" copies the selected request as Markdown, JSON, cURL, a `fetch` call, Python `requests`, or an AI prompt (more on that below). "export" downloads the session as raw JSON or HAR 1.2, which loads in Chrome DevTools, Insomnia, and any HAR viewer.
 
 Dark and light themes, no external assets, everything served from `127.0.0.1`.
+
+## Filtering
+
+The filter box takes space-separated terms that must all match, in the style of the Chrome DevTools network filter. Matching is case-insensitive, and the filter is saved, so it survives a reload.
+
+| Term | Shows requests that |
+|---|---|
+| `order_id` | contain it in the url, method, status, headers or a text body |
+| `-order_id` | don't: a leading `-` turns any term into an exclusion |
+| `url:/api/` | contain it in the url |
+| `host:localhost:4318` | go to that host (port included). `domain:` works too |
+| `path:/v1/` | contain it in the path or query string |
+| `method:post` | use that method |
+| `status:404` `status:4xx` | got that status (`x` is any digit). `status:error` and `status:pending` match failed and in-flight requests |
+| `source:http` | went through that wrapper (`fetch` or `http`) |
+
+A term with an unknown key is plain text, so `localhost:4318` needs no escaping. While a filter is active the counter next to the box reads `shown/total`; hover it to see how many requests are hidden.
+
+### Hiding noise, like OpenTelemetry exports
+
+An app that exports OpenTelemetry to a local collector sends `POST /v1/traces`, `/v1/metrics` and `/v1/logs` to `localhost:4318` every few seconds, which buries the calls you're actually debugging. Hide them with:
+
+```
+-host:localhost:4318
+```
+
+`-localhost:4318` works too, but it also hides any request that merely mentions the address in a header or body.
+
+To have them hidden from the first render, pass `--exclude`:
+
+```bash
+npx netbridge --exclude localhost:4318 -- pnpm dev
+```
+
+The UI then opens with `-url:localhost:4318` in the filter box. `--exclude` is repeatable and takes a url substring or any keyed term (`--exclude method:options`, `--exclude status:3xx`). It only changes the view: excluded requests are still captured, exported, and served by the API. Each netbridge start adds its exclusions to the saved filter once, so you can still edit or remove them in the box.
 
 ## Why not …?
 
@@ -103,7 +139,7 @@ netbridge -- next dev
 | `NETBRIDGE_REDACT` | `1` | redact sensitive header values |
 | `NETBRIDGE_QUIET` | `0` | suppress the per-process capture banner |
 
-CLI flags: `--port <n>` to pick the UI port (auto-increments if busy).
+CLI flags: `--port <n>` to pick the UI port (auto-increments if busy), `--exclude <pattern>` (repeatable) to open the UI with matching requests hidden (see [Filtering](#filtering)).
 
 ## DevTools extension (optional)
 
@@ -153,7 +189,7 @@ netbridge shows actual outbound network traffic, the bytes that left your server
 ```bash
 pnpm install
 pnpm build      # tsc → dist/
-pnpm test       # self-contained smoke test (no network needed)
+pnpm test       # filter unit tests + self-contained smoke test (no network needed)
 ```
 
 ## License

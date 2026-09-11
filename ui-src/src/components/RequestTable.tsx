@@ -87,6 +87,13 @@ export function RequestTable({ requests, total, selectedId, onSelect }: Props) {
           traffic from fetch, ky, axios, got &amp; co. appears here live
         </div>
       )}
+      {total > 0 && requests.length === 0 && (
+        <div id="empty">
+          no requests match the filter
+          <br />
+          {total} hidden
+        </div>
+      )}
     </div>
   );
 }

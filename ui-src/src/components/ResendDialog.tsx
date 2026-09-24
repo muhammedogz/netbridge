@@ -72,6 +72,7 @@ export function ResendDialog({
   };
 
   return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: backdrop click is a mouse shortcut; Esc and cancel close it too
     <div
       className="resend-overlay"
       onMouseDown={(e) => {
@@ -120,8 +121,11 @@ export function ResendDialog({
             placeholder="https://…"
           />
         </div>
-        <label className="modal-label">headers — one "Key: value" per line</label>
+        <label className="modal-label" htmlFor="resend-headers">
+          headers — one "Key: value" per line
+        </label>
         <textarea
+          id="resend-headers"
           className="modal-text"
           rows={6}
           value={draft.headersText}
@@ -129,13 +133,14 @@ export function ResendDialog({
           onChange={(e) => setDraft((d) => ({ ...d, headersText: e.target.value }))}
           aria-label="headers"
         />
-        <label className="modal-label">
+        <label className="modal-label" htmlFor="resend-body">
           body
           {isBinary && (
             <>
               {' '}
               <span className="badge">binary — resent verbatim</span>
               <button
+                type="button"
                 className="iconbtn"
                 disabled={pending}
                 onClick={() => setDraft((d) => ({ ...d, body: '', bodyEncoding: 'utf8' }))}
@@ -146,6 +151,7 @@ export function ResendDialog({
           )}
         </label>
         <textarea
+          id="resend-body"
           className="modal-text"
           rows={8}
           value={draft.body}
@@ -156,10 +162,10 @@ export function ResendDialog({
         />
         {error && <div className="error">{error}</div>}
         <div className="modal-actions">
-          <button disabled={pending} onClick={onClose}>
+          <button type="button" disabled={pending} onClick={onClose}>
             cancel
           </button>
-          <button className="modal-send" disabled={pending} onClick={submit}>
+          <button type="button" className="modal-send" disabled={pending} onClick={submit}>
             {pending ? 'sending…' : 'resend'}
           </button>
         </div>

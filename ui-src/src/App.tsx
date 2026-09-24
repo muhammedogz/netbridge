@@ -129,6 +129,7 @@ export function App({ config }: { config: ViewConfig }) {
         />
         <ExportMenu onExport={onExport} />
         <button
+          type="button"
           onClick={async () => {
             await clearAll();
             setSelectedId(null);

@@ -19,6 +19,7 @@ export function CopyButton({
 
   return (
     <button
+      type="button"
       className={`${className} ${flash ? 'flash' : ''}`.trim()}
       title={title}
       onClick={async () => {

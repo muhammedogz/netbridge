@@ -1,6 +1,23 @@
 import type { CapturedRequest } from './types';
 
 /**
+ * Props that make a non-button element act like one: focusable and triggered
+ * by Enter/Space as well as a click. Pair with a `role` on the element.
+ */
+export function pressable(onPress: () => void) {
+  return {
+    tabIndex: 0,
+    onClick: onPress,
+    onKeyDown: (e: KeyboardEvent) => {
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onPress();
+      }
+    },
+  };
+}
+
+/**
  * Exact UTF-8 byte length without allocating a Blob/TextEncoder per call.
  * fmtSize is mapped over every row on every render, so `new Blob([body]).size`
  * churned (and GC'd) a Blob per cell per frame; this is allocation-free and

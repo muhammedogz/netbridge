@@ -43,7 +43,8 @@
     "dev:ui": "vite --config ui-src/vite.config.ts",
     "prepack": "npm run build",
     "prepublishOnly": "npm run build",
-    "test": "node test/run.mjs"
+    "test": "node test/run.mjs",
+    "lint": "biome lint"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.5.14",

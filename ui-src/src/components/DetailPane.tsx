@@ -46,7 +46,7 @@ function BodySection({ r, kind }: { r: CapturedRequest; kind: Kind }) {
           {body != null && (
             <>
               <CopyButton text={() => text ?? ''} />
-              <button className="iconbtn" onClick={() => downloadBody(r, kind)}>
+              <button type="button" className="iconbtn" onClick={() => downloadBody(r, kind)}>
                 download
               </button>
             </>
@@ -94,6 +94,7 @@ export function DetailPane({
   currentIdRef.current = r?.id ?? null;
 
   // Selecting another entry must not carry over an open editor or stale state.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: reset on a new entry id
   useEffect(() => {
     setEditing(false);
     setResendError(null);
@@ -129,9 +130,9 @@ export function DetailPane({
     <div id="detail" className={r ? 'open' : ''}>
       {r && (
         <div className="inner">
-          <span className="close" onClick={onClose}>
+          <button type="button" className="close" aria-label="close" onClick={onClose}>
             ✕
-          </span>
+          </button>
           <h2>
             <span className={`method ${r.method}`}>{r.method}</span> {r.url}{' '}
             <CopyButton text={r.url} label="copy url" />
@@ -142,16 +143,18 @@ export function DetailPane({
             <span className="badge">{r.source || ''}</span>
             {r.pid != null && <span className="badge">pid {r.pid}</span>}
             {r.replayOf && (
-              <span
+              <button
+                type="button"
                 className="badge replay-link"
                 title="jump to the original request"
                 onClick={() => onSelectEntry(r.replayOf as string)}
               >
                 replay of {r.replayOf}
-              </span>
+              </button>
             )}
             <CopyMenu r={r} />
             <button
+              type="button"
               className="iconbtn"
               title={
                 're-issue this request unchanged' +
@@ -163,6 +166,7 @@ export function DetailPane({
               {resendingId === r.id ? 'sending…' : 'resend'}
             </button>
             <button
+              type="button"
               className="iconbtn"
               title="edit method, url, headers or body, then resend"
               onClick={() => setEditing(true)}
@@ -170,6 +174,7 @@ export function DetailPane({
               edit &amp; resend
             </button>
             <button
+              type="button"
               className="iconbtn"
               title="download this entry as JSON"
               onClick={() =>
@@ -192,11 +197,18 @@ export function DetailPane({
               </div>
             )}
           </div>
-          <div className="tabbar">
+          <div className="tabbar" role="tablist">
             {(['response', 'request'] as Kind[]).map((k) => (
-              <div key={k} className={`tab ${tab === k ? 'active' : ''}`} onClick={() => setTab(k)}>
+              <button
+                type="button"
+                key={k}
+                className={`tab ${tab === k ? 'active' : ''}`}
+                role="tab"
+                aria-selected={tab === k}
+                onClick={() => setTab(k)}
+              >
                 {k === 'response' ? 'Response' : 'Request'}
-              </div>
+              </button>
             ))}
           </div>
           <BodySection r={r} kind={tab} />

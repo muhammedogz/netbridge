@@ -121,6 +121,10 @@ export async function runCli({ args = [], command, env = {}, waitForUrl = true, 
     async stop() {
       if (child.exitCode === null && child.signalCode === null) child.kill('SIGTERM');
       await exited;
+      // On Windows the kill doesn't reach the app netbridge started, which
+      // still holds these pipes; don't let that keep the test process alive.
+      child.stdout.destroy();
+      child.stderr.destroy();
     },
     async requests() {
       const res = await fetch(`${handle.base}/api/requests`);

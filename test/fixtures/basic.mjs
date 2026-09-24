@@ -51,4 +51,5 @@ try {
 }
 
 console.log('[target] all requests done');
-setInterval(() => {}, 60_000);
+// Bounded, in case the test's stop never reaches this process (Windows).
+setTimeout(() => process.exit(0), 60_000);

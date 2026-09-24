@@ -7,7 +7,7 @@ import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'http';
 import path from 'path';
-import { FIXTURES, runCli, startOrigin, waitFor } from './helpers.mjs';
+import { FIXTURES, runCli, settled, startOrigin, waitFor } from './helpers.mjs';
 
 let origin;
 before(async () => {
@@ -53,8 +53,10 @@ describe('buffer budget', () => {
     const nb = await bigRun(30, 100, 1_000_000);
     try {
       await doneAll(nb);
-      const list = await nb.waitForRequests((l) => l.some((r) => r.state === 'done'));
-      const bodyChars = list.reduce((n, r) => n + (r.resBody?.length ?? 0), 0);
+      const chars = (l) => l.reduce((n, r) => n + (r.resBody?.length ?? 0), 0);
+      // Settled and filled up to near the budget: the last events arrived.
+      const list = await nb.waitForRequests((l) => l.every(settled) && chars(l) >= 700_000);
+      const bodyChars = chars(list);
       assert.ok(list.length < 30, `older entries evicted (kept ${list.length})`);
       assert.ok(list.length >= 5, `recent entries kept (kept ${list.length})`);
       assert.ok(bodyChars <= 1_000_000, `bodies within budget (${bodyChars})`);

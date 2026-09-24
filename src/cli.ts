@@ -16,6 +16,7 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { startCollector } from './collector';
 import { detectProject, runInit, runScriptCommand } from './init';
+import { quoteNodeOption, quoteWindowsArg } from './quote';
 
 const DEFAULT_PORT = 4499;
 
@@ -46,15 +47,6 @@ Environment:
                          are dropped (default 268435456, i.e. 256 MB)
   NETBRIDGE_REDACT=0     disable redaction of auth/cookie headers
   NETBRIDGE_QUIET=1      suppress per-process capture banner`);
-}
-
-/**
- * Quote a value for NODE_OPTIONS. Node's parser treats a backslash inside
- * double quotes as an escape, so a Windows path (C:\Users\...) must have its
- * backslashes doubled or it resolves to a file that doesn't exist.
- */
-function quoteNodeOption(value: string): string {
-  return `"${value.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
 }
 
 // ---------------------------------------------------------------------------
@@ -201,16 +193,14 @@ async function main(): Promise<void> {
   if (shellCommand) console.log(`\n  running: ${shellCommand}`);
   console.log(`\n  netbridge UI  →  http://localhost:${collector.port}\n`);
 
+  // On Windows a bare command like `next`/`pnpm` resolves to a `.cmd` shim
+  // that only runs through a shell, so the argv becomes one quoted command
+  // line. POSIX keeps shell:false so signals and arg passing stay exact.
   const child = shellCommand
     ? spawn(shellCommand, { stdio: 'inherit', env, shell: true })
-    : spawn(rest[0], rest.slice(1), {
-        stdio: 'inherit',
-        env,
-        // On Windows a bare command like `next`/`pnpm` resolves to a `.cmd` shim
-        // that is only runnable through a shell — without this, spawn ENOENTs.
-        // POSIX keeps shell:false so signals and arg passing stay exact.
-        shell: process.platform === 'win32',
-      });
+    : process.platform === 'win32'
+      ? spawn(rest.map(quoteWindowsArg).join(' '), { stdio: 'inherit', env, shell: true })
+      : spawn(rest[0], rest.slice(1), { stdio: 'inherit', env });
 
   child.on('error', (err) => {
     console.error(`[netbridge] failed to start "${shellCommand ?? rest[0]}":`, err.message);

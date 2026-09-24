@@ -62,3 +62,26 @@ describe('entrySize', () => {
     assert.ok(big - small >= 1100);
   });
 });
+
+describe('quoting', () => {
+  const { quoteNodeOption, quoteWindowsArg } = require(path.join(ROOT, 'dist', 'quote.js'));
+
+  it('escapes backslashes and quotes for NODE_OPTIONS', () => {
+    assert.equal(quoteNodeOption('C:\\Users\\me\\preload.js'), '"C:\\\\Users\\\\me\\\\preload.js"');
+    assert.equal(quoteNodeOption('/a "b"/c'), '"/a \\"b\\"/c"');
+  });
+
+  const win = [
+    ['plain', 'next', 'next'],
+    ['empty', '', '""'],
+    ['spaces', 'a b', '"a b"'],
+    ['cmd metachars', 'a&b', '"a&b"'],
+    ['inner quote', 'say "hi"', '"say \\"hi\\""'],
+    ['backslashes before a quote', 'a\\"b', '"a\\\\\\"b"'],
+    ['trailing backslash', 'C:\\dir with space\\', '"C:\\dir with space\\\\"'],
+    ['backslash path, no quoting needed', 'C:\\dir\\x.mjs', 'C:\\dir\\x.mjs'],
+  ];
+  for (const [label, input, expected] of win) {
+    it(`windows arg: ${label}`, () => assert.equal(quoteWindowsArg(input), expected));
+  }
+});

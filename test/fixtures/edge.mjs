@@ -36,7 +36,7 @@ const r2 = await fetch(new Request(u('/echo', 'request-stream'), { method: 'POST
 console.log(`[edge] request-stream echoed ${JSON.parse(await r2.text()).echoed.length}`);
 
 // IPv6 literal host: the url needs brackets.
-const v6 = http.createServer((req, res) => res.end('v6'));
+const v6 = http.createServer((_req, res) => res.end('v6'));
 try {
   await new Promise((resolve, reject) => v6.once('error', reject).listen(0, '::1', resolve));
   await get({ host: '::1', port: v6.address().port, path: '/v6?case=ipv6' });
@@ -48,11 +48,12 @@ v6.close();
 // Unix socket (Docker API style): no host at all.
 if (process.platform !== 'win32') {
   const sock = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'nb-sock-')), 's.sock');
-  const unix = http.createServer((req, res) => res.end('unix'));
+  const unix = http.createServer((_req, res) => res.end('unix'));
   await new Promise((resolve) => unix.listen(sock, resolve));
   await get({ socketPath: sock, path: '/containers/json?case=unix' });
   unix.close();
 }
 
 console.log('[edge] all requests done');
-setInterval(() => {}, 60_000);
+// Bounded, in case the test's stop never reaches this process (Windows).
+setTimeout(() => process.exit(0), 60_000);

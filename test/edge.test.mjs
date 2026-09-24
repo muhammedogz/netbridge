@@ -20,7 +20,14 @@ before(async () => {
     env: { TARGET_ORIGIN: origin.url, NETBRIDGE_BODY_LIMIT: String(BODY_LIMIT) },
   });
   await waitFor(() => nb.output.includes('[edge] all requests done'), { timeoutMs: 20_000 });
-  captured = await nb.waitForRequests((l) => l.every(settled) && l.length >= 4);
+  // The fixture's last events may still be in flight when it reports done.
+  const expected = ['slow-fetch', 'slow-http', 'request-string', 'request-stream'];
+  if (process.platform !== 'win32') expected.push('unix');
+  if (!nb.output.includes('no ipv6 loopback')) expected.push('ipv6');
+  captured = await nb.waitForRequests(
+    (l) => l.every(settled) && expected.every((c) => l.some((r) => r.url.includes(`case=${c}`))),
+    `cases ${expected.join(', ')}`
+  );
 });
 
 after(async () => {

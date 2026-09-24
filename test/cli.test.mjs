@@ -134,3 +134,15 @@ describe('preload path', () => {
     }
   });
 });
+
+describe('arguments', () => {
+  it('reach the command exactly, spaces and quotes included', async () => {
+    const args = ['a b', 'say "hi"', 'x&y', ''];
+    const nb = await runCli({
+      command: [process.execPath, '-e', 'console.log("ARGV=" + JSON.stringify(process.argv.slice(1)))', ...args],
+      waitForUrl: false,
+    });
+    await nb.exited;
+    assert.ok(nb.output.includes(`ARGV=${JSON.stringify(args)}`), nb.output);
+  });
+});

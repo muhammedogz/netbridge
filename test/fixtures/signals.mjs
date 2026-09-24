@@ -8,4 +8,5 @@ for (const sig of ['SIGINT', 'SIGTERM']) {
   });
 }
 console.log('[signals] ready');
-setInterval(() => {}, 60_000);
+// Bounded, in case the test's stop never reaches this process (Windows).
+setTimeout(() => process.exit(0), 60_000);

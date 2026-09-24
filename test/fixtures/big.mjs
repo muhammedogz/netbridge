@@ -14,4 +14,5 @@ async function worker() {
 }
 await Promise.all(Array.from({ length: PARALLEL }, worker));
 console.log('[big] all requests done');
-setInterval(() => {}, 60_000);
+// Bounded, in case the test's stop never reaches this process (Windows).
+setTimeout(() => process.exit(0), 60_000);

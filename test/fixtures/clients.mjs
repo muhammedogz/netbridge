@@ -17,4 +17,5 @@ await ky.post(u('/echo', 'ky-post'), { json: { from: 'ky' } }).json();
 await (await nodeFetch(u('/gzip', 'node-fetch'))).json();
 
 console.log('[clients] all requests done');
-setInterval(() => {}, 60_000);
+// Bounded, in case the test's stop never reaches this process (Windows).
+setTimeout(() => process.exit(0), 60_000);

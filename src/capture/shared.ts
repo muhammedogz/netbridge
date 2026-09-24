@@ -7,34 +7,13 @@
  */
 import * as http from 'http';
 import * as zlib from 'zlib';
+import { REDACTED } from '../protocol';
+import type { NetbridgeEvent } from '../protocol';
+
+export type { NetbridgeEvent };
 
 // Pristine reference, captured at module load (before any patching).
 const pristineHttpRequest = http.request;
-
-export interface NetbridgeEvent {
-  /** Unique id shared between the start and end phase of one request. */
-  id: string;
-  phase: 'start' | 'end' | 'error';
-  ts: number;
-  pid: number;
-  source: 'fetch' | 'http' | 'replay';
-  method: string;
-  url: string;
-  /** For replay entries: the id of the original captured request. */
-  replayOf?: string;
-  reqHeaders?: Record<string, string>;
-  reqBody?: string;
-  reqBodyEncoding?: 'utf8' | 'base64';
-  reqBodyTruncated?: boolean;
-  status?: number;
-  statusText?: string;
-  resHeaders?: Record<string, string>;
-  resBody?: string;
-  resBodyEncoding?: 'utf8' | 'base64';
-  resBodyTruncated?: boolean;
-  durationMs?: number;
-  error?: string;
-}
 
 export const config = {
   port: Number(process.env.NETBRIDGE_PORT || 0),
@@ -66,7 +45,7 @@ export function sanitizeHeaders(
     if (value === undefined || value === null) continue;
     const lower = key.toLowerCase();
     if (config.redact && REDACTED_HEADERS.has(lower)) {
-      out[lower] = '«redacted»';
+      out[lower] = REDACTED;
     } else {
       out[lower] = Array.isArray(value) ? value.join(', ') : String(value);
     }

@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { MAX_ENTRIES, mergeEvent } from '../../src/protocol';
 import type { CapturedRequest, WireEvent } from './types';
 
 /**
- * Hard cap on retained rows. Mirrors the collector's MAX_EVENTS so a long,
- * high-volume session can't grow the client map (and the un-virtualized table)
- * without bound; the oldest rows — which a fresh snapshot would also have
- * dropped — are evicted first.
+ * Hard cap on retained rows: the collector's cap, so a long, high-volume
+ * session can't grow the client map (and the un-virtualized table) without
+ * bound; the oldest rows, which a fresh snapshot would also have dropped, are
+ * evicted first.
  */
-const MAX_ROWS = 4000;
+const MAX_ROWS = MAX_ENTRIES;
 
 /** Evict the oldest-inserted (lowest-seq) rows once past the retention cap. */
 function trim(map: Map<string, CapturedRequest>): void {
@@ -50,14 +51,8 @@ export function useRequests(): RequestsState {
 
   const applyEvent = useCallback((e: WireEvent) => {
     const map = mapRef.current;
-    const existing: CapturedRequest =
-      map.get(e.id) ?? ({ id: e.id, seq: ++seqRef.current } as CapturedRequest);
-    for (const [k, v] of Object.entries(e)) {
-      if (v !== undefined && k !== 'phase') (existing as any)[k] = v;
-    }
-    existing.state =
-      e.phase === 'error' ? 'error' : e.phase === 'end' ? 'done' : existing.state || 'pending';
-    map.set(e.id, existing);
+    const existing = map.get(e.id) ?? ({ id: e.id, seq: ++seqRef.current } as CapturedRequest);
+    map.set(e.id, mergeEvent(existing, e));
   }, []);
 
   useEffect(() => {

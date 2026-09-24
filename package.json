@@ -36,7 +36,7 @@
   },
   "packageManager": "pnpm@10.34.1",
   "scripts": {
-    "build": "tsc && tsc -p ui-src/tsconfig.json && vite build --config ui-src/vite.config.ts",
+    "build": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && tsc && tsc -p ui-src/tsconfig.json && vite build --config ui-src/vite.config.ts",
     "build:cli": "tsc",
     "build:ui": "vite build --config ui-src/vite.config.ts",
     "typecheck:ui": "tsc -p ui-src/tsconfig.json",

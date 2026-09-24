@@ -12,8 +12,8 @@ import { spawn } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
-import { startCollector } from './server';
-import { detectProject, runInit } from './init';
+import { startCollector } from './collector';
+import { detectProject, runInit, runScriptCommand } from './init';
 
 const DEFAULT_PORT = 4499;
 
@@ -77,8 +77,7 @@ function askLine(rl: readline.Interface, query: string): Promise<string | null> 
 
 async function promptForCommand(cwd: string): Promise<string | null> {
   const { packageManager } = detectProject(cwd);
-  const runPrefix =
-    packageManager === 'yarn' ? 'yarn' : packageManager === 'bun' ? 'bun run' : `${packageManager} run`;
+  const run = (name: string) => runScriptCommand(packageManager, name);
   const scripts = runnableScripts(cwd)
     // `dev` first — it is what people almost always want to wrap.
     .sort((a, b) => Number(b.name === 'dev') - Number(a.name === 'dev'))
@@ -87,7 +86,7 @@ async function promptForCommand(cwd: string): Promise<string | null> {
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
   console.log('netbridge — what should it run?\n');
   scripts.forEach((s, i) => {
-    console.log(`  ${i + 1}) ${runPrefix} ${s.name}  ${dim(`— ${s.command}`)}`);
+    console.log(`  ${i + 1}) ${run(s.name)}  ${dim(`— ${s.command}`)}`);
   });
   console.log(
     scripts.length
@@ -104,12 +103,12 @@ async function promptForCommand(cwd: string): Promise<string | null> {
       if (answer === null) return null;
       const trimmed = answer.trim();
       if (!trimmed) {
-        if (scripts.length) return `${runPrefix} ${scripts[0].name}`;
+        if (scripts.length) return run(scripts[0].name);
         continue;
       }
       if (/^\d+$/.test(trimmed)) {
         const idx = Number(trimmed) - 1;
-        if (idx >= 0 && idx < scripts.length) return `${runPrefix} ${scripts[idx].name}`;
+        if (idx >= 0 && idx < scripts.length) return run(scripts[idx].name);
         console.log(scripts.length ? `  pick 1–${scripts.length}, or type a command` : '  type a command');
         continue;
       }

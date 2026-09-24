@@ -1,37 +1,9 @@
-export interface CapturedRequest {
-  id: string;
-  seq: number;
-  ts: number;
-  pid?: number;
-  source?: 'fetch' | 'http' | 'replay';
-  method: string;
-  url: string;
-  /** For replay entries: the id of the original captured request. */
-  replayOf?: string;
-  state: 'pending' | 'done' | 'error';
-  reqHeaders?: Record<string, string>;
-  reqBody?: string;
-  reqBodyEncoding?: 'utf8' | 'base64';
-  reqBodyTruncated?: boolean;
-  status?: number;
-  statusText?: string;
-  resHeaders?: Record<string, string>;
-  resBody?: string;
-  resBodyEncoding?: 'utf8' | 'base64';
-  resBodyTruncated?: boolean;
-  durationMs?: number;
-  error?: string;
-}
+import type { Entry, NetbridgeEvent } from '../../src/protocol';
 
-export type WireEvent = Partial<CapturedRequest> & {
-  id: string;
-  phase?: 'start' | 'end' | 'error';
-};
+export type { ViewConfig } from '../../src/protocol';
 
-/** GET /api/config: CLI options that shape the UI's starting view. */
-export interface ViewConfig {
-  /** `--exclude` patterns to seed the filter box with. */
-  exclude: string[];
-  /** When the collector started; tells netbridge runs apart. */
-  startedAt: number;
-}
+/** An entry as the UI keeps it: `seq` orders rows by first sighting. */
+export type CapturedRequest = Entry & { seq: number };
+
+/** A live SSE event: a capture event, possibly partial. */
+export type WireEvent = Partial<NetbridgeEvent> & { id: string };

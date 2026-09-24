@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { REDACTED } from '../../../src/protocol';
 import type { CapturedRequest } from '../types';
 import { displayBody, downloadBlob, downloadBody, headersText, resendRequest } from '../lib';
 import { CopyButton } from './CopyButton';
@@ -118,7 +119,7 @@ export function DetailPane({
   const asIsWarnings = r
     ? [
         r.reqBodyTruncated ? 'body was truncated at capture' : null,
-        Object.values(r.reqHeaders ?? {}).includes('«redacted»')
+        Object.values(r.reqHeaders ?? {}).includes(REDACTED)
           ? 'redacted header values will be dropped'
           : null,
       ].filter(Boolean)

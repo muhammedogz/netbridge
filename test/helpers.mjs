@@ -98,8 +98,8 @@ export async function startOrigin() {
  * Run the netbridge CLI. Resolves once the collector printed its UI url.
  * `command` is the argv after `--`; `args` are netbridge options.
  */
-export async function runCli({ args = [], command, env = {}, waitForUrl = true } = {}) {
-  const argv = [CLI, '--port', '0', ...args];
+export async function runCli({ args = [], command, env = {}, waitForUrl = true, cli = CLI } = {}) {
+  const argv = [cli, '--port', '0', ...args];
   if (command) argv.push('--', ...command);
   const child = spawn(process.execPath, argv, {
     env: { ...process.env, NETBRIDGE_QUIET: '1', ...env },

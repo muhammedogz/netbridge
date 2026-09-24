@@ -11,6 +11,7 @@
 import { spawn } from 'child_process';
 import { randomBytes } from 'crypto';
 import * as fs from 'fs';
+import { constants as osConstants } from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
 import { startCollector } from './collector';
@@ -45,6 +46,15 @@ Environment:
                          are dropped (default 268435456, i.e. 256 MB)
   NETBRIDGE_REDACT=0     disable redaction of auth/cookie headers
   NETBRIDGE_QUIET=1      suppress per-process capture banner`);
+}
+
+/**
+ * Quote a value for NODE_OPTIONS. Node's parser treats a backslash inside
+ * double quotes as an escape, so a Windows path (C:\Users\...) must have its
+ * backslashes doubled or it resolves to a file that doesn't exist.
+ */
+function quoteNodeOption(value: string): string {
+  return `"${value.replace(/[\\"]/g, (c) => `\\${c}`)}"`;
 }
 
 // ---------------------------------------------------------------------------
@@ -180,11 +190,10 @@ async function main(): Promise<void> {
   const bufferLimit = Number(process.env.NETBRIDGE_BUFFER_LIMIT) || undefined;
   const collector = await startCollector(port, { exclude, token, bufferLimit });
 
-  const preloadPath = path.join(__dirname, 'preload.js');
   const existingNodeOptions = process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : '';
   const env = {
     ...process.env,
-    NODE_OPTIONS: `${existingNodeOptions}--require "${preloadPath}"`,
+    NODE_OPTIONS: `${existingNodeOptions}--require ${quoteNodeOption(path.join(__dirname, 'preload.js'))}`,
     NETBRIDGE_PORT: String(collector.port),
     NETBRIDGE_TOKEN: token,
   };
@@ -209,20 +218,25 @@ async function main(): Promise<void> {
     process.exit(1);
   });
 
-  const forward = (signal: NodeJS.Signals) => {
-    process.on(signal, () => {
-      // Terminal sends the signal to the whole foreground group already; this
-      // covers non-tty cases. Never exit before the child does.
-      if (child.exitCode === null) child.kill(signal);
-    });
-  };
-  forward('SIGINT');
-  forward('SIGTERM');
+  // Never exit before the child does: handle the signal here and pass it on.
+  // Ctrl+C in a terminal already reaches the child directly (it is in the
+  // same foreground process group), and many dev servers read a second
+  // SIGINT as "force quit", so SIGINT is only forwarded off-terminal (a
+  // parent tool or `kill` signalling netbridge alone). Terminals never send
+  // SIGTERM, so it is always forwarded.
+  const interactive = Boolean(process.stdin.isTTY);
+  process.on('SIGINT', () => {
+    if (!interactive && child.exitCode === null) child.kill('SIGINT');
+  });
+  process.on('SIGTERM', () => {
+    if (child.exitCode === null) child.kill('SIGTERM');
+  });
 
   child.on('exit', (code, signal) => {
     collector.close();
-    if (signal) process.exit(0);
-    process.exit(code ?? 0);
+    // A child killed by a signal reports it the shell way (SIGTERM → 143), so
+    // scripts and CI see the failure instead of a success.
+    process.exit(signal ? 128 + (osConstants.signals[signal] ?? 0) : (code ?? 0));
   });
 }
 

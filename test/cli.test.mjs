@@ -1,13 +1,15 @@
 /**
- * CLI behavior: --exclude reaching the UI config, option validation, and port
- * collision handling.
+ * CLI behavior: --exclude reaching the UI config, option validation, port
+ * collision handling, exit status, signal forwarding and preload install.
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawnSync } from 'child_process';
+import fs from 'fs';
 import http from 'http';
+import os from 'os';
 import path from 'path';
-import { CLI, FIXTURES, runCli, settled, startOrigin } from './helpers.mjs';
+import { CLI, FIXTURES, ROOT, runCli, settled, startOrigin, waitFor } from './helpers.mjs';
 
 let origin;
 before(async () => {
@@ -74,6 +76,61 @@ describe('--port', () => {
     } finally {
       await nb.stop();
       blocker.close();
+    }
+  });
+});
+
+describe('exit status', () => {
+  it("passes the command's exit code through", async () => {
+    const nb = await runCli({ command: [process.execPath, '-e', 'process.exit(3)'], waitForUrl: false });
+    assert.equal((await nb.exited).code, 3);
+  });
+
+  it('exits 128+n when the command is killed by a signal', { skip: process.platform === 'win32' }, async () => {
+    const nb = await runCli({
+      command: [process.execPath, '-e', "process.kill(process.pid, 'SIGTERM')"],
+      waitForUrl: false,
+    });
+    assert.equal((await nb.exited).code, 143);
+  });
+});
+
+describe('signals', { skip: process.platform === 'win32' }, () => {
+  for (const sig of ['SIGINT', 'SIGTERM']) {
+    it(`forwards ${sig} exactly once when not run from a terminal`, async () => {
+      const nb = await runCli({ command: [process.execPath, path.join(FIXTURES, 'signals.mjs')] });
+      await waitFor(() => nb.output.includes('[signals] ready'));
+      nb.child.kill(sig);
+      const { code } = await nb.exited;
+      assert.equal(code, 0);
+      assert.equal(nb.output.match(/\[signals\] got/g)?.length, 1, nb.output);
+    });
+  }
+});
+
+describe('preload path', () => {
+  // NODE_OPTIONS treats a backslash inside quotes as an escape, so an
+  // unescaped Windows path (C:\Users\...) never loads. Linux can hold the same
+  // characters in a directory name, so install a copy of the package there.
+  it('loads from a path with backslashes, spaces and quotes', { skip: process.platform === 'win32' }, async () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nb \\ "quoted" '));
+    try {
+      for (const part of ['dist', 'ui', 'package.json']) {
+        fs.cpSync(path.join(ROOT, part), path.join(dir, part), { recursive: true });
+      }
+      const nb = await runCli({
+        cli: path.join(dir, 'dist', 'cli.js'),
+        command: [process.execPath, path.join(FIXTURES, 'basic.mjs')],
+        env: { TARGET_ORIGIN: origin.url },
+      });
+      try {
+        const list = await nb.waitForRequests((l) => l.length >= 5 && l.every(settled));
+        assert.ok(list.length >= 5);
+      } finally {
+        await nb.stop();
+      }
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
     }
   });
 });

@@ -190,9 +190,12 @@ netbridge shows actual outbound network traffic, the bytes that left your server
 
 ```bash
 pnpm install
-pnpm build      # tsc → dist/
-pnpm test       # filter unit tests + self-contained smoke test (no network needed)
+pnpm build      # tsc → dist/, vite → ui/
+pnpm test       # node:test suites against the built CLI (no network needed)
+pnpm lint       # Biome
 ```
+
+`node test/run.mjs <name>` runs the matching suites only (`node test/run.mjs clients`). The suites drive the real CLI against a local origin: capture through fetch, http and real clients (axios, got, ky, node-fetch), replay, the collector's guards, buffer limits, and CLI behavior. `NETBRIDGE_HEAVY_TESTS=1` adds a slow case that pushes the collector past V8's maximum string length.
 
 ## License
 

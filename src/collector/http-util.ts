@@ -62,3 +62,40 @@ export async function readJson(
     return undefined;
   }
 }
+
+/** Resolves once `res` can take more data (or has gone away). */
+export function drained(res: http.ServerResponse): Promise<void> {
+  if (res.destroyed || res.writableEnded) return Promise.resolve();
+  return new Promise((resolve) => {
+    const done = () => {
+      res.off('drain', done);
+      res.off('close', done);
+      resolve();
+    };
+    res.on('drain', done);
+    res.on('close', done);
+  });
+}
+
+/**
+ * Write a JSON array one item at a time, waiting for the socket to drain.
+ * One JSON.stringify over the whole table can pass V8's maximum string
+ * length (~512M chars) and throw; this never builds more than one item. An
+ * item that cannot be serialized is skipped.
+ */
+export async function streamJsonArray(res: http.ServerResponse, items: readonly unknown[]): Promise<void> {
+  res.writeHead(200, { 'content-type': 'application/json' });
+  let sep = '[';
+  for (const item of items) {
+    let json: string;
+    try {
+      json = JSON.stringify(item);
+    } catch {
+      continue;
+    }
+    if (!res.write(sep + json)) await drained(res);
+    if (res.destroyed) return;
+    sep = ',';
+  }
+  res.end(sep === '[' ? '[]' : ']');
+}

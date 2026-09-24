@@ -129,7 +129,7 @@ netbridge -- next dev
 - Web pages you have open can't reach it either: it only answers requests addressed to a loopback host name (blocks DNS rebinding), refuses POSTs from any origin but its own UI, and accepts captures only from processes it launched (a per-run token).
 - netbridge redacts `authorization`, `cookie`, `set-cookie`, `x-api-key` header values by default (`NETBRIDGE_REDACT=0` to disable).
 - Bodies are capped at 256 KB per request (`NETBRIDGE_BODY_LIMIT` to change).
-- Captured data lives in memory only. Nothing is written to disk, nothing leaves your machine.
+- Captured data lives in memory only, bounded at 4000 requests and 256 MB of bodies (`NETBRIDGE_BUFFER_LIMIT`); the oldest go first. Nothing is written to disk, nothing leaves your machine.
 - This is a development tool. Don't wire it into production processes.
 
 ## Configuration
@@ -137,6 +137,7 @@ netbridge -- next dev
 | Env var | Default | Meaning |
 |---|---|---|
 | `NETBRIDGE_BODY_LIMIT` | `262144` | max captured body bytes per request |
+| `NETBRIDGE_BUFFER_LIMIT` | `268435456` | total body and header size kept (collector and UI) before the oldest requests are dropped |
 | `NETBRIDGE_REDACT` | `1` | redact sensitive header values |
 | `NETBRIDGE_QUIET` | `0` | suppress the per-process capture banner |
 

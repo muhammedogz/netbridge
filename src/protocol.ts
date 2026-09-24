@@ -44,6 +44,8 @@ export interface ViewConfig {
   exclude: string[];
   /** When the collector started; tells netbridge runs apart. */
   startedAt: number;
+  /** The collector's buffer budget (see DEFAULT_BUFFER_LIMIT). */
+  bufferLimit?: number;
 }
 
 /** Header values the capture layer hides are replaced with this literal. */
@@ -51,6 +53,14 @@ export const REDACTED = '«redacted»';
 
 /** Most requests the collector (and the UI) keep; the oldest go first. */
 export const MAX_ENTRIES = 4000;
+
+/**
+ * Default budget for the bodies and headers kept, in characters (about bytes
+ * for text; NETBRIDGE_BUFFER_LIMIT overrides it). Past it the oldest entries
+ * go, so a session full of large bodies stays bounded in both the collector
+ * and the browser tab.
+ */
+export const DEFAULT_BUFFER_LIMIT = 256 * 1024 * 1024;
 
 /** Every field an event may carry. Anything else on the wire is ignored. */
 const EVENT_FIELDS: readonly (keyof Entry)[] = [
@@ -94,4 +104,14 @@ export function mergeEvent<T extends { id: string; state?: EntryState }>(
   target.state =
     event.phase === 'error' ? 'error' : event.phase === 'end' ? 'done' : target.state || 'pending';
   return target;
+}
+
+/** Approximate retained size of an entry: its bodies, headers and url. */
+export function entrySize(e: Partial<Entry>): number {
+  let n = (e.url?.length ?? 0) + (e.reqBody?.length ?? 0) + (e.resBody?.length ?? 0) + (e.error?.length ?? 0);
+  for (const headers of [e.reqHeaders, e.resHeaders]) {
+    if (!headers) continue;
+    for (const k in headers) n += k.length + String(headers[k]).length;
+  }
+  return n + 200; // fixed fields and bookkeeping
 }

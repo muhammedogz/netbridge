@@ -46,6 +46,7 @@ export async function waitFor(fn, { timeoutMs = 10_000, intervalMs = 100, label 
  *   /json   JSON body          /gzip  gzip-encoded JSON
  *   /echo   echoes the body    /boom  drops the socket (network error)
  *   /slow   headers now, body trickles over ~1s
+ *   /big?kb=N  N KiB of text
  */
 export async function startOrigin() {
   const server = http.createServer((req, res) => {
@@ -66,6 +67,10 @@ export async function startOrigin() {
       });
     } else if (route === '/boom') {
       req.socket.destroy();
+    } else if (route === '/big') {
+      const kb = Number(new URL(req.url, 'http://x').searchParams.get('kb')) || 1;
+      res.writeHead(200, { 'content-type': 'text/plain' });
+      res.end('b'.repeat(kb * 1024));
     } else if (route === '/slow') {
       res.writeHead(200, { 'content-type': 'text/plain' });
       res.flushHeaders();

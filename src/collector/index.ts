@@ -15,7 +15,7 @@ import * as http from 'http';
 import * as path from 'path';
 import type { NetbridgeEvent } from '../protocol';
 import { refusal } from './guard';
-import { jsonError, readBody, readJson, sendJson } from './http-util';
+import { jsonError, readBody, readJson, sendJson, streamJsonArray } from './http-util';
 import { executeResend, parseResend } from './resend';
 import { SseHub } from './sse';
 import { serveStatic } from './static';
@@ -37,6 +37,8 @@ export interface CollectorOptions {
   exclude?: string[];
   /** Secret the preloaded processes send with /ingest (x-netbridge-token). */
   token: string;
+  /** Budget for retained bodies and headers, see DEFAULT_BUFFER_LIMIT. */
+  bufferLimit?: number;
 }
 
 function packageVersion(): string {
@@ -49,12 +51,16 @@ function packageVersion(): string {
 }
 
 export function startCollector(preferredPort: number, options: CollectorOptions): Promise<CollectorHandle> {
-  const store = new RequestStore();
+  const store = new RequestStore(options.bufferLimit);
   const hub = new SseHub();
   const version = packageVersion();
   // startedAt tells runs apart: the UI merges the exclusions into its saved
   // filter once per run, so a reload doesn't undo the user's edits.
-  const viewConfig = JSON.stringify({ exclude: options.exclude ?? [], startedAt: Date.now() });
+  const viewConfig = JSON.stringify({
+    exclude: options.exclude ?? [],
+    startedAt: Date.now(),
+    bufferLimit: store.maxBytes,
+  });
   // The bound port, for the Origin check; set once listening.
   let listeningPort = 0;
 
@@ -117,7 +123,7 @@ export function startCollector(preferredPort: number, options: CollectorOptions)
     if (method === 'GET' && url === '/api/health') {
       return sendJson(res, 200, { app: 'netbridge', version, requests: store.size });
     }
-    if (method === 'GET' && url === '/api/requests') return sendJson(res, 200, store.values());
+    if (method === 'GET' && url === '/api/requests') return streamJsonArray(res, store.values());
     if (method === 'GET' && url === '/api/config') return sendJson(res, 200, viewConfig);
     if (method === 'GET') {
       if (serveStatic(url, res)) return;

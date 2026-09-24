@@ -41,6 +41,8 @@ Examples:
 
 Environment:
   NETBRIDGE_BODY_LIMIT   max captured body bytes per request (default 262144)
+  NETBRIDGE_BUFFER_LIMIT total bodies+headers kept before the oldest requests
+                         are dropped (default 268435456, i.e. 256 MB)
   NETBRIDGE_REDACT=0     disable redaction of auth/cookie headers
   NETBRIDGE_QUIET=1      suppress per-process capture banner`);
 }
@@ -175,7 +177,8 @@ async function main(): Promise<void> {
 
   // Per-run secret: only processes launched here can post to /ingest.
   const token = randomBytes(24).toString('hex');
-  const collector = await startCollector(port, { exclude, token });
+  const bufferLimit = Number(process.env.NETBRIDGE_BUFFER_LIMIT) || undefined;
+  const collector = await startCollector(port, { exclude, token, bufferLimit });
 
   const preloadPath = path.join(__dirname, 'preload.js');
   const existingNodeOptions = process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : '';

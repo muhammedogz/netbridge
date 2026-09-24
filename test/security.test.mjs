@@ -117,3 +117,31 @@ describe('the UI itself', () => {
     assert.equal(res.status, 204);
   });
 });
+
+describe('NETBRIDGE_ALLOWED_HOSTS', () => {
+  it('serves and accepts POSTs from a listed remote-dev host', async () => {
+    const other = await runCli({
+      command: [process.execPath, '-e', 'setTimeout(() => {}, 30000)'],
+      env: { NETBRIDGE_ALLOWED_HOSTS: 'box.example.dev, other.test' },
+    });
+    const get = (host, headers = {}, method = 'GET', urlPath = '/api/health') =>
+      new Promise((resolve, reject) => {
+        const req = http.request(
+          { host: '127.0.0.1', port: other.port, method, path: urlPath, headers: { host, ...headers } },
+          (res) => {
+            res.resume();
+            resolve(res.statusCode);
+          }
+        );
+        req.on('error', reject);
+        req.end();
+      });
+    try {
+      assert.equal(await get('box.example.dev'), 200);
+      assert.equal(await get('box.example.dev', { origin: 'https://box.example.dev' }, 'POST', '/api/clear'), 204);
+      assert.equal(await get('rebind.evil.example'), 403, 'unlisted hosts still refused');
+    } finally {
+      await other.stop();
+    }
+  });
+});

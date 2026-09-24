@@ -140,6 +140,7 @@ netbridge -- next dev
 | `NETBRIDGE_BUFFER_LIMIT` | `268435456` | total body and header size kept (collector and UI) before the oldest requests are dropped |
 | `NETBRIDGE_REDACT` | `1` | redact sensitive header values |
 | `NETBRIDGE_QUIET` | `0` | suppress the per-process capture banner |
+| `NETBRIDGE_ALLOWED_HOSTS` | | extra host names the UI may be opened under, comma-separated, for remote dev proxies (Codespaces, Gitpod). Loopback names always work |
 
 CLI flags: `--port <n>` to pick the UI port (auto-increments if busy), `--exclude <pattern>` (repeatable) to open the UI with matching requests hidden (see [Filtering](#filtering)).
 

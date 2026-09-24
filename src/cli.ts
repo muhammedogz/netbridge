@@ -15,6 +15,7 @@ import { constants as osConstants } from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
 import { startCollector } from './collector';
+import { parseAllowedHosts } from './collector/guard';
 import { detectProject, runInit, runScriptCommand } from './init';
 import { quoteNodeOption, quoteWindowsArg } from './quote';
 
@@ -46,7 +47,9 @@ Environment:
   NETBRIDGE_BUFFER_LIMIT total bodies+headers kept before the oldest requests
                          are dropped (default 268435456, i.e. 256 MB)
   NETBRIDGE_REDACT=0     disable redaction of auth/cookie headers
-  NETBRIDGE_QUIET=1      suppress per-process capture banner`);
+  NETBRIDGE_QUIET=1      suppress per-process capture banner
+  NETBRIDGE_ALLOWED_HOSTS  extra host names the UI may be opened under, comma-
+                         separated (remote dev proxies such as Codespaces)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -180,7 +183,8 @@ async function main(): Promise<void> {
   // Per-run secret: only processes launched here can post to /ingest.
   const token = randomBytes(24).toString('hex');
   const bufferLimit = Number(process.env.NETBRIDGE_BUFFER_LIMIT) || undefined;
-  const collector = await startCollector(port, { exclude, token, bufferLimit });
+  const allowedHosts = parseAllowedHosts(process.env.NETBRIDGE_ALLOWED_HOSTS);
+  const collector = await startCollector(port, { exclude, token, bufferLimit, allowedHosts });
 
   const existingNodeOptions = process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : '';
   const env = {

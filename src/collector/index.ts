@@ -39,6 +39,8 @@ export interface CollectorOptions {
   token: string;
   /** Budget for retained bodies and headers, see DEFAULT_BUFFER_LIMIT. */
   bufferLimit?: number;
+  /** Extra host names served besides loopback (NETBRIDGE_ALLOWED_HOSTS). */
+  allowedHosts?: ReadonlySet<string>;
 }
 
 function packageVersion(): string {
@@ -108,7 +110,7 @@ export function startCollector(preferredPort: number, options: CollectorOptions)
     const url = req.url || '/';
     const method = req.method;
 
-    const refused = refusal(req, listeningPort, options.token);
+    const refused = refusal(req, listeningPort, options.token, options.allowedHosts);
     if (refused) return jsonError(res, refused.status, refused.error);
 
     if (method === 'POST' && url === '/ingest') return ingest(req, res);

@@ -133,7 +133,7 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
       if (finalized) return;
       finalized = true;
       let encoded: { body: string; encoding: 'utf8' | 'base64' } | undefined;
-      let truncated = resBody.truncated;
+      const truncated = resBody.truncated;
       if (!resBody.isEmpty) {
         // Only decompress complete bodies — partial compressed data cannot be
         // decoded, so truncated compressed bodies stay base64.

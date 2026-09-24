@@ -130,7 +130,8 @@ function captureResponseBody(response: Response, id: string, base: Record<string
   try {
     clone = response.clone();
   } catch {
-    return finishEmpty();
+    finishEmpty();
+    return;
   }
 
   // Stream the cloned body and stop once the cap is hit, cancelling the rest,

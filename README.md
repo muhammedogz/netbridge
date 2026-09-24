@@ -126,6 +126,7 @@ netbridge -- next dev
 ## Security & privacy defaults
 
 - The collector binds to `127.0.0.1` only.
+- Web pages you have open can't reach it either: it only answers requests addressed to a loopback host name (blocks DNS rebinding), refuses POSTs from any origin but its own UI, and accepts captures only from processes it launched (a per-run token).
 - netbridge redacts `authorization`, `cookie`, `set-cookie`, `x-api-key` header values by default (`NETBRIDGE_REDACT=0` to disable).
 - Bodies are capped at 256 KB per request (`NETBRIDGE_BODY_LIMIT` to change).
 - Captured data lives in memory only. Nothing is written to disk, nothing leaves your machine.

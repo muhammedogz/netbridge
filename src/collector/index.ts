@@ -14,6 +14,7 @@
 import * as http from 'http';
 import * as path from 'path';
 import type { NetbridgeEvent } from '../protocol';
+import { refusal } from './guard';
 import { jsonError, readBody, readJson, sendJson } from './http-util';
 import { executeResend, parseResend } from './resend';
 import { SseHub } from './sse';
@@ -34,6 +35,8 @@ export interface CollectorHandle {
 export interface CollectorOptions {
   /** `--exclude` patterns the UI seeds its filter box with (view only). */
   exclude?: string[];
+  /** Secret the preloaded processes send with /ingest (x-netbridge-token). */
+  token: string;
 }
 
 function packageVersion(): string {
@@ -45,22 +48,15 @@ function packageVersion(): string {
   }
 }
 
-function isLocalOrigin(origin: string): boolean {
-  try {
-    const host = new URL(origin).hostname;
-    return host === '127.0.0.1' || host === 'localhost' || host === '::1' || host === '[::1]';
-  } catch {
-    return false; // a malformed Origin stays non-local
-  }
-}
-
-export function startCollector(preferredPort: number, options: CollectorOptions = {}): Promise<CollectorHandle> {
+export function startCollector(preferredPort: number, options: CollectorOptions): Promise<CollectorHandle> {
   const store = new RequestStore();
   const hub = new SseHub();
   const version = packageVersion();
   // startedAt tells runs apart: the UI merges the exclusions into its saved
   // filter once per run, so a reload doesn't undo the user's edits.
   const viewConfig = JSON.stringify({ exclude: options.exclude ?? [], startedAt: Date.now() });
+  // The bound port, for the Origin check; set once listening.
+  let listeningPort = 0;
 
   function record(event: NetbridgeEvent): void {
     store.record(event);
@@ -84,15 +80,10 @@ export function startCollector(preferredPort: number, options: CollectorOptions 
   }
 
   async function resend(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
-    // CSRF guard. This endpoint makes the collector issue outbound requests,
-    // so a drive-by page must not be able to trigger it. Two layers:
-    // - a present Origin header must be local (the UI is same-origin; a
-    //   browser always attaches Origin to cross-site POSTs);
-    // - the content-type must be application/json, which cross-origin makes
-    //   a preflighted request; the preflight fails since we send no CORS
-    //   headers. curl/scripts without an Origin just set the header.
-    const origin = req.headers.origin;
-    if (origin && !isLocalOrigin(origin)) return jsonError(res, 403, 'cross-origin resend rejected');
+    // This endpoint makes the collector issue outbound requests. On top of the
+    // Origin guard every POST passes, require application/json: cross-origin
+    // that makes a preflighted request, and the preflight fails since we send
+    // no CORS headers. curl/scripts without an Origin just set the header.
     const ctype = String(req.headers['content-type'] || '');
     if (!/^application\/json\b/i.test(ctype.trim())) {
       return jsonError(res, 415, 'content-type must be application/json');
@@ -110,6 +101,9 @@ export function startCollector(preferredPort: number, options: CollectorOptions 
   async function route(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = req.url || '/';
     const method = req.method;
+
+    const refused = refusal(req, listeningPort, options.token);
+    if (refused) return jsonError(res, refused.status, refused.error);
 
     if (method === 'POST' && url === '/ingest') return ingest(req, res);
     if (method === 'POST' && url === '/api/resend') return resend(req, res);
@@ -161,8 +155,8 @@ export function startCollector(preferredPort: number, options: CollectorOptions 
       const onListening = () => {
         server.removeListener('error', onError);
         const address = server.address();
-        const actualPort = address && typeof address === 'object' ? address.port : port;
-        resolve({ port: actualPort, close: () => server.close() });
+        listeningPort = address && typeof address === 'object' ? address.port : port;
+        resolve({ port: listeningPort, close: () => server.close() });
       };
       server.once('error', onError);
       server.once('listening', onListening);

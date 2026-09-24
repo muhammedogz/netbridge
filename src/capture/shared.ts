@@ -17,6 +17,7 @@ const pristineHttpRequest = http.request;
 
 export const config = {
   port: Number(process.env.NETBRIDGE_PORT || 0),
+  token: process.env.NETBRIDGE_TOKEN || '',
   bodyLimit: Number(process.env.NETBRIDGE_BODY_LIMIT || 256 * 1024),
   redact: process.env.NETBRIDGE_REDACT !== '0',
 };
@@ -154,7 +155,7 @@ function post(payload: string): void {
         port: config.port,
         path: '/ingest',
         method: 'POST',
-        headers: { 'content-type': 'application/x-ndjson' },
+        headers: { 'content-type': 'application/x-ndjson', 'x-netbridge-token': config.token },
       },
       (res) => {
         res.resume();

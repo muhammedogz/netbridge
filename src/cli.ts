@@ -9,6 +9,7 @@
  *   netbridge --exclude X -- ...  start the UI with urls containing X hidden
  */
 import { spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as readline from 'readline';
@@ -172,7 +173,9 @@ async function main(): Promise<void> {
     }
   }
 
-  const collector = await startCollector(port, { exclude });
+  // Per-run secret: only processes launched here can post to /ingest.
+  const token = randomBytes(24).toString('hex');
+  const collector = await startCollector(port, { exclude, token });
 
   const preloadPath = path.join(__dirname, 'preload.js');
   const existingNodeOptions = process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : '';
@@ -180,6 +183,7 @@ async function main(): Promise<void> {
     ...process.env,
     NODE_OPTIONS: `${existingNodeOptions}--require "${preloadPath}"`,
     NETBRIDGE_PORT: String(collector.port),
+    NETBRIDGE_TOKEN: token,
   };
 
   if (shellCommand) console.log(`\n  running: ${shellCommand}`);

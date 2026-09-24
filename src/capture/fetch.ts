@@ -39,19 +39,42 @@ function headersToObject(headers: unknown): Record<string, string> {
   return out;
 }
 
-async function captureRequestBody(
-  input: unknown,
-  init: RequestInit | undefined
-): Promise<{ body?: string; encoding?: 'utf8' | 'base64'; truncated?: boolean }> {
+type BodyInfo = { body?: string; encoding?: 'utf8' | 'base64'; truncated?: boolean };
+
+function limitedBody(buf: Buffer, truncated: boolean): BodyInfo {
+  if (buf.length === 0 && !truncated) return {};
+  const { body, encoding } = encodeBody(buf);
+  return { body, encoding, truncated: truncated || undefined };
+}
+
+/** Read up to the body limit from a stream, then cancel the rest. */
+async function readLimited(stream: ReadableStream<Uint8Array>): Promise<BodyInfo> {
+  const collector = new BodyCollector();
+  const reader = stream.getReader();
   try {
-    let source: unknown = init?.body;
-    if (source === undefined && input instanceof Request && input.body) {
-      // Clone so the original stream stays consumable.
-      const buf = Buffer.from(await input.clone().arrayBuffer());
-      if (buf.length === 0) return {};
-      const limited = buf.subarray(0, config.bodyLimit);
-      const { body, encoding } = encodeBody(limited);
-      return { body, encoding, truncated: buf.length > config.bodyLimit };
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      collector.push(value);
+      if (collector.truncated) {
+        reader.cancel().catch(() => {});
+        break;
+      }
+    }
+  } catch {
+    /* keep whatever arrived */
+  }
+  return limitedBody(collector.buffer(), collector.truncated);
+}
+
+async function captureRequestBody(input: unknown, init: RequestInit | undefined): Promise<BodyInfo> {
+  try {
+    const source: unknown = init?.body;
+    if (source === undefined && isRequest(input) && input.body) {
+      // Read a clone (the original stays consumable), and only up to the
+      // limit: arrayBuffer() would buffer an upload of any size in memory
+      // before it was even sent.
+      return await readLimited(input.clone().body as ReadableStream<Uint8Array>);
     }
     if (source === undefined || source === null) return {};
     if (typeof source === 'string') {
@@ -65,28 +88,38 @@ async function captureRequestBody(
       const buf = Buffer.isBuffer(source)
         ? source
         : Buffer.from(source instanceof ArrayBuffer ? new Uint8Array(source) : source);
-      const limited = buf.subarray(0, config.bodyLimit);
-      const { body, encoding } = encodeBody(limited);
-      return { body, encoding, truncated: buf.length > config.bodyLimit };
+      return limitedBody(buf.subarray(0, config.bodyLimit), buf.length > config.bodyLimit);
     }
-    // FormData / Blob / ReadableStream: skip body capture in v1 (cannot read
-    // without consuming or heavy buffering).
+    // FormData / Blob / ReadableStream in init: skip (cannot read without
+    // consuming the caller's stream or heavy buffering).
     return {};
   } catch {
     return {};
   }
 }
 
-function captureResponseBody(response: Response, id: string, base: Record<string, unknown>): void {
-  const finishEmpty = () => emit({ ...(base as any), id, phase: 'end', ts: Date.now() });
+/**
+ * A fetch Request, including one from another copy of undici (the npm
+ * package, a bundled one) that fails `instanceof Request`.
+ */
+function isRequest(input: unknown): input is Request {
+  if (typeof Request !== 'undefined' && input instanceof Request) return true;
+  const r = input as Partial<Request> | null;
+  return (
+    !!r && typeof r === 'object' && typeof r.url === 'string' && typeof r.method === 'string' && typeof r.clone === 'function'
+  );
+}
+
+function captureResponseBody(response: Response, id: string, base: Record<string, unknown>, start: number): void {
+  // durationMs runs until the body is done, as in the http wrapper: time to
+  // headers alone made a slow download look fast.
+  const done = () => ({ ...(base as any), id, phase: 'end' as const, ts: Date.now(), durationMs: Date.now() - start });
+  const finishEmpty = () => emit(done());
   const finish = (collector: BodyCollector) => {
     if (collector.isEmpty) return finishEmpty();
     const { body, encoding } = encodeBody(collector.buffer());
     emit({
-      ...(base as any),
-      id,
-      phase: 'end',
-      ts: Date.now(),
+      ...done(),
       resBody: body,
       resBodyEncoding: encoding,
       resBodyTruncated: collector.truncated || undefined,
@@ -146,7 +179,7 @@ export function patchFetch(): void {
     try {
       if (typeof input === 'string') url = input;
       else if (input instanceof URL) url = input.href;
-      else if (input instanceof Request) {
+      else if (isRequest(input)) {
         url = input.url;
         method = input.method || 'GET';
       } else url = String(input);
@@ -163,7 +196,7 @@ export function patchFetch(): void {
     const id = nextId();
     const start = Date.now();
     const reqHeaders = sanitizeHeaders({
-      ...headersToObject(input instanceof Request ? input.headers : undefined),
+      ...headersToObject(isRequest(input) ? input.headers : undefined),
       ...headersToObject(init?.headers),
     });
 
@@ -193,9 +226,8 @@ export function patchFetch(): void {
         status: response.status,
         statusText: response.statusText,
         resHeaders: sanitizeHeaders(headersToObject(response.headers)),
-        durationMs: Date.now() - start,
       };
-      captureResponseBody(response, id, base);
+      captureResponseBody(response, id, base, start);
       return response;
     } catch (err) {
       emit({

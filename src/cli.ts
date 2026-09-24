@@ -26,7 +26,8 @@ Usage:
   netbridge init                          add dev:netbridge script to package.json
 
 Options:
-  -p, --port N           UI port (default ${DEFAULT_PORT}, next free one if busy)
+  -p, --port N           UI port (default ${DEFAULT_PORT}, next free one if busy;
+                         0 picks any free port)
   --exclude PATTERN      open the UI with requests whose url contains PATTERN
                          hidden; also takes filter terms such as method:options.
                          Repeatable. View only: everything is still captured.
@@ -138,7 +139,7 @@ async function main(): Promise<void> {
   for (;;) {
     if (rest[0] === '--port' || rest[0] === '-p') {
       port = Number(rest[1]);
-      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      if (!Number.isInteger(port) || port < 0 || port > 65535) {
         console.error('[netbridge] invalid --port value');
         process.exit(1);
       }

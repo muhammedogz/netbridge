@@ -21,7 +21,16 @@ before(async () => {
   });
   await waitFor(() => nb.output.includes('[edge] all requests done'), { timeoutMs: 20_000 });
   // The fixture's last events may still be in flight when it reports done.
-  const expected = ['slow-fetch', 'slow-http', 'request-string', 'request-stream'];
+  const expected = [
+    'slow-fetch',
+    'slow-http',
+    'request-string',
+    'request-stream',
+    'formdata',
+    'blob',
+    'init-stream',
+    'init-stream-small',
+  ];
   if (process.platform !== 'win32') expected.push('unix');
   if (!nb.output.includes('no ipv6 loopback')) expected.push('ipv6');
   captured = await nb.waitForRequests(
@@ -57,6 +66,34 @@ describe('Request bodies', () => {
       assert.match(nb.output, new RegExp(`${name} echoed ${size}\\b`), 'origin got every byte');
     });
   }
+});
+
+describe('init bodies', () => {
+  it('FormData: captured as multipart, fields and files included', () => {
+    const r = byCase('formdata');
+    assert.ok(r?.reqBody, 'body captured');
+    assert.match(r.reqBody, /name="hello"\r\n\r\nworld/);
+    assert.match(r.reqBody, /filename="x\.txt"/);
+    assert.match(r.reqBody, /file-contents/);
+  });
+
+  it('Blob: captured', () => {
+    assert.equal(byCase('blob')?.reqBody, 'blob-body');
+  });
+
+  it('ReadableStream: captured up to the limit, sent whole', () => {
+    const r = byCase('init-stream');
+    assert.equal(r.reqBody.length, BODY_LIMIT);
+    assert.equal(r.reqBodyTruncated, true);
+    assert.match(nb.output, new RegExp(`init-stream echoed ${48 * 64 * 1024}\\b`), 'origin got every byte');
+  });
+
+  it('small ReadableStream: captured whole, not truncated', () => {
+    const r = byCase('init-stream-small');
+    assert.equal(r.reqBody, 'qqq');
+    assert.ok(!r.reqBodyTruncated);
+    assert.match(nb.output, /init-stream-small echoed qqq/);
+  });
 });
 
 describe('urls', () => {

@@ -184,7 +184,7 @@ netbridge shows actual outbound network traffic, the bytes that left your server
 - Inbound requests (browser → your server) are not captured. Browser DevTools already shows that side; an `--inbound` flag is on the roadmap.
 - Next.js Edge middleware and Edge functions run outside Node, so they're invisible.
 - Raw `undici.request()` / `undici.Client` calls bypass the fetch wrapper. Rare; most apps use fetch or http-based clients.
-- `FormData` and stream request bodies are not captured. The response side still is.
+- A `FormData` request body is shown as multipart with a boundary of netbridge's own; fetch picks its own random one on the wire, so only the separator lines differ.
 - Child processes that aren't Node (curl, python) are invisible.
 
 ## Development

@@ -23,7 +23,8 @@ import {
 
 type RequestFn = typeof httpType.request;
 
-function buildUrl(protocol: string, args: unknown[]): { url: string; method: string } {
+/** Best-effort url and method of an http(s).request / .get call. */
+export function buildUrl(protocol: string, args: unknown[]): { url: string; method: string } {
   let url = '';
   let method = 'GET';
   let options: Record<string, any> | undefined;
@@ -40,14 +41,20 @@ function buildUrl(protocol: string, args: unknown[]): { url: string; method: str
   }
 
   if (options) {
-    method = (options.method || method).toUpperCase();
+    method = String(options.method || method).toUpperCase();
     if (!url) {
       const proto = options.protocol ? String(options.protocol).replace(':', '') : protocol;
-      const host = options.hostname || options.host || 'localhost';
+      const reqPath = options.path || '/';
+      if (options.socketPath) {
+        // Unix socket (Docker API and friends): the "http://unix:<socket>:<path>"
+        // convention, instead of pretending the call went to localhost.
+        return { url: `${proto}://unix:${options.socketPath}:${reqPath}`, method };
+      }
+      let host = String(options.hostname || options.host || 'localhost');
+      if (host.includes(':') && !host.startsWith('[')) host = `[${host}]`; // IPv6 literal
       const defaultPort = proto === 'https' ? 443 : 80;
       const port = options.port && Number(options.port) !== defaultPort ? `:${options.port}` : '';
-      const path = options.path || '/';
-      url = `${proto}://${host}${port}${path}`;
+      url = `${proto}://${host}${port}${reqPath}`;
     }
   }
   if (url && !url.startsWith('http')) url = `${protocol}://${url}`;
@@ -126,7 +133,7 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
       if (finalized) return;
       finalized = true;
       let encoded: { body: string; encoding: 'utf8' | 'base64' } | undefined;
-      let truncated = resBody.truncated;
+      const truncated = resBody.truncated;
       if (!resBody.isEmpty) {
         // Only decompress complete bodies — partial compressed data cannot be
         // decoded, so truncated compressed bodies stay base64.

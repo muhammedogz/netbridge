@@ -28,6 +28,7 @@ function Chip({
 }) {
   return (
     <button
+      type="button"
       className={`chip${on ? ` on${cls ? ` ${cls}` : ''}` : ''}`}
       aria-pressed={on}
       onClick={onToggle}
@@ -148,7 +149,7 @@ export function FilterBar({
         />
       </span>
       {anyActive && (
-        <button className="chip reset" onClick={onClear}>
+        <button type="button" className="chip reset" onClick={onClear}>
           ✕ reset
         </button>
       )}

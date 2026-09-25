@@ -29,6 +29,7 @@ export function RequestTable({ requests, total, selectedId, onSelect }: Props) {
   const stickRef = useRef(true);
 
   // Sticky auto-scroll: follow new rows only when the user is near the bottom.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-run whenever the rows change
   useLayoutEffect(() => {
     const el = listRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;

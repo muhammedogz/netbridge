@@ -11,6 +11,8 @@
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { test } from 'node:test';
+import nodeAssert from 'node:assert/strict';
 import ts from 'typescript';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -23,19 +25,11 @@ const { parseFilter, matchesFilter, matchesStructured, exclusionTerm, withExclus
   `data:text/javascript;base64,${Buffer.from(outputText).toString('base64')}`
 );
 
-let failures = 0;
 function assert(cond, label) {
-  if (cond) {
-    console.log(`  ok  ${label}`);
-  } else {
-    failures += 1;
-    console.error(`FAIL  ${label}`);
-  }
+  nodeAssert.ok(cond, label);
 }
 function eq(actual, expected, label) {
-  const a = JSON.stringify(actual);
-  const e = JSON.stringify(expected);
-  assert(a === e, a === e ? label : `${label}\n      expected ${e}\n      got      ${a}`);
+  nodeAssert.deepStrictEqual(JSON.parse(JSON.stringify(actual ?? null)), JSON.parse(JSON.stringify(expected ?? null)), label);
 }
 
 // --- fixture rows -----------------------------------------------------------
@@ -96,7 +90,7 @@ const visible = (query) => {
 const allBut = (...names) => ALL.filter((n) => !names.includes(n));
 
 // --- parsing ----------------------------------------------------------------
-console.log('parsing');
+test('parsing', () => {
 const term = (key, value, negate = false) => ({ key, value, negate });
 const keys = (query) => parseFilter(query).map((t) => t.key);
 eq(parseFilter(''), [], 'empty query has no terms');
@@ -113,7 +107,9 @@ eq(keys('constructor:x __proto__:y'), [null, null], 'Object.prototype names are 
 eq(keys('body method:get -host:x'), ['method', 'host', null], 'keyed terms sort before free text');
 
 // --- free text --------------------------------------------------------------
-console.log('free text');
+});
+
+test('free text', () => {
 eq(visible(''), ALL, 'empty filter keeps every row');
 eq(visible('   '), ALL, 'blank filter keeps every row');
 eq(visible('-'), ALL, 'a lone "-" keeps every row');
@@ -131,7 +127,9 @@ for (const q of ['order_id', 'localhost', 'post', 'example.com']) {
 }
 
 // --- keyed terms ------------------------------------------------------------
-console.log('keyed terms');
+});
+
+test('keyed terms', () => {
 eq(visible('-host:localhost:4318'), allBut('traces', 'metrics'), '-host: hides only requests to that host');
 eq(visible('-HOST:LocalHost:4318'), allBut('traces', 'metrics'), 'keyed terms are case-insensitive');
 eq(visible('domain:localhost:4318'), ['traces', 'metrics'], 'domain: is host:');
@@ -162,7 +160,9 @@ eq(
 );
 
 // --- combinations -----------------------------------------------------------
-console.log('combinations');
+});
+
+test('combinations', () => {
 eq(visible('-host:localhost:4318 method:post'), ['created'], 'exclusion + keyed include');
 eq(visible('-host:localhost:4318 -host:example.com'), ['config', 'refused'], 'several exclusions');
 eq(visible('example.com -status:2xx'), ['deleted', 'upstream', 'slow'], 'free text + keyed exclusion');
@@ -170,7 +170,9 @@ eq(visible('-host:localhost:4318 api status:2xx order_id'), ['users'], 'mixed in
 eq(visible('method:post method:get'), [], 'contradicting keyed terms match nothing');
 
 // --- odd input never throws -------------------------------------------------
-console.log('odd input');
+});
+
+test('odd input', () => {
 const ODD = [
   '(', '[', '*', '\\', '/(/', '%', '?', ':', '-:', '::::', 'host::::', 'status:%%', 'status:-1',
   ' ', 'é', '😀', 'x'.repeat(10000), 'constructor:x', '__proto__:x', 'toString:x', 'hasOwnProperty:x',
@@ -190,7 +192,9 @@ assert(threw === null, `odd input never throws${threw ? ` (${threw})` : ''}`);
 eq(visible('-constructor:x'), ALL, 'constructor:x is plain text');
 
 // --- chips ------------------------------------------------------------------
-console.log('chips');
+});
+
+test('chips', () => {
 const chips = (methods = [], statuses = [], sources = []) => ({
   methods: new Set(methods),
   statuses: new Set(statuses),
@@ -203,7 +207,9 @@ eq(chipped(chips(['POST'], [], ['http'])), ['traces', 'metrics'], 'chip groups A
 eq(chipped(chips([], ['error', 'pending'])), ['slow', 'refused'], 'error and pending chips');
 
 // --- seeding from --exclude -------------------------------------------------
-console.log('seeding');
+});
+
+test('seeding', () => {
 eq(exclusionTerm('localhost:4318'), '-url:localhost:4318', 'plain pattern becomes a url exclusion');
 eq(exclusionTerm('host:localhost:4318'), '-host:localhost:4318', 'keyed pattern is negated as given');
 eq(exclusionTerm('method:OPTIONS'), '-method:OPTIONS', 'keyed pattern keeps its case');
@@ -221,5 +227,4 @@ eq(withExclusions('', ['a', 'a']), '-url:a', 'duplicate patterns are added once'
 eq(withExclusions('post ', []), 'post ', 'no patterns leave the filter untouched');
 eq(visible(withExclusions('', ['localhost:4318'])), allBut('traces', 'metrics'), 'seed hides only collector traffic');
 
-console.log(failures === 0 ? '\nall assertions passed' : `\n${failures} assertion(s) FAILED`);
-process.exit(failures === 0 ? 0 : 1);
+});

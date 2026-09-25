@@ -11,6 +11,13 @@ interface Detection {
   devCommand: string | null;
 }
 
+/** The command that runs package.json script `name` with `packageManager`. */
+export function runScriptCommand(packageManager: Detection['packageManager'], name: string): string {
+  if (packageManager === 'yarn') return `yarn ${name}`;
+  if (packageManager === 'bun') return `bun run ${name}`;
+  return `${packageManager} run ${name}`;
+}
+
 export function detectProject(cwd: string): Detection {
   const has = (file: string) => fs.existsSync(path.join(cwd, file));
 
@@ -41,15 +48,7 @@ export function detectProject(cwd: string): Detection {
     else if (deps.express) framework = 'express';
     else if (deps.fastify) framework = 'fastify';
 
-    if (pkg.scripts?.dev) {
-      const runPrefix =
-        packageManager === 'yarn'
-          ? 'yarn'
-          : packageManager === 'bun'
-            ? 'bun run'
-            : `${packageManager} run`;
-      devCommand = `${runPrefix} dev`;
-    }
+    if (pkg.scripts?.dev) devCommand = runScriptCommand(packageManager, 'dev');
   }
 
   return { packageManager, framework, devCommand };

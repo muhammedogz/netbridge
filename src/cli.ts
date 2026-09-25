@@ -9,11 +9,15 @@
  *   netbridge --exclude X -- ...  start the UI with urls containing X hidden
  */
 import { spawn } from 'child_process';
+import { randomBytes } from 'crypto';
 import * as fs from 'fs';
+import { constants as osConstants } from 'os';
 import * as path from 'path';
 import * as readline from 'readline';
-import { startCollector } from './server';
-import { detectProject, runInit } from './init';
+import { startCollector } from './collector';
+import { parseAllowedHosts } from './collector/guard';
+import { detectProject, runInit, runScriptCommand } from './init';
+import { quoteNodeOption, quoteWindowsArg } from './quote';
 
 const DEFAULT_PORT = 4499;
 
@@ -26,7 +30,8 @@ Usage:
   netbridge init                          add dev:netbridge script to package.json
 
 Options:
-  -p, --port N           UI port (default ${DEFAULT_PORT}, next free one if busy)
+  -p, --port N           UI port (default ${DEFAULT_PORT}, next free one if busy;
+                         0 picks any free port)
   --exclude PATTERN      open the UI with requests whose url contains PATTERN
                          hidden; also takes filter terms such as method:options.
                          Repeatable. View only: everything is still captured.
@@ -39,8 +44,12 @@ Examples:
 
 Environment:
   NETBRIDGE_BODY_LIMIT   max captured body bytes per request (default 262144)
+  NETBRIDGE_BUFFER_LIMIT total bodies+headers kept before the oldest requests
+                         are dropped (default 268435456, i.e. 256 MB)
   NETBRIDGE_REDACT=0     disable redaction of auth/cookie headers
-  NETBRIDGE_QUIET=1      suppress per-process capture banner`);
+  NETBRIDGE_QUIET=1      suppress per-process capture banner
+  NETBRIDGE_ALLOWED_HOSTS  extra host names the UI may be opened under, comma-
+                         separated (remote dev proxies such as Codespaces)`);
 }
 
 // ---------------------------------------------------------------------------
@@ -76,8 +85,7 @@ function askLine(rl: readline.Interface, query: string): Promise<string | null> 
 
 async function promptForCommand(cwd: string): Promise<string | null> {
   const { packageManager } = detectProject(cwd);
-  const runPrefix =
-    packageManager === 'yarn' ? 'yarn' : packageManager === 'bun' ? 'bun run' : `${packageManager} run`;
+  const run = (name: string) => runScriptCommand(packageManager, name);
   const scripts = runnableScripts(cwd)
     // `dev` first — it is what people almost always want to wrap.
     .sort((a, b) => Number(b.name === 'dev') - Number(a.name === 'dev'))
@@ -86,7 +94,7 @@ async function promptForCommand(cwd: string): Promise<string | null> {
   const dim = (s: string) => `\x1b[2m${s}\x1b[0m`;
   console.log('netbridge — what should it run?\n');
   scripts.forEach((s, i) => {
-    console.log(`  ${i + 1}) ${runPrefix} ${s.name}  ${dim(`— ${s.command}`)}`);
+    console.log(`  ${i + 1}) ${run(s.name)}  ${dim(`— ${s.command}`)}`);
   });
   console.log(
     scripts.length
@@ -103,12 +111,12 @@ async function promptForCommand(cwd: string): Promise<string | null> {
       if (answer === null) return null;
       const trimmed = answer.trim();
       if (!trimmed) {
-        if (scripts.length) return `${runPrefix} ${scripts[0].name}`;
+        if (scripts.length) return run(scripts[0].name);
         continue;
       }
       if (/^\d+$/.test(trimmed)) {
         const idx = Number(trimmed) - 1;
-        if (idx >= 0 && idx < scripts.length) return `${runPrefix} ${scripts[idx].name}`;
+        if (idx >= 0 && idx < scripts.length) return run(scripts[idx].name);
         console.log(scripts.length ? `  pick 1–${scripts.length}, or type a command` : '  type a command');
         continue;
       }
@@ -138,7 +146,7 @@ async function main(): Promise<void> {
   for (;;) {
     if (rest[0] === '--port' || rest[0] === '-p') {
       port = Number(rest[1]);
-      if (!Number.isInteger(port) || port <= 0 || port > 65535) {
+      if (!Number.isInteger(port) || port < 0 || port > 65535) {
         console.error('[netbridge] invalid --port value');
         process.exit(1);
       }
@@ -172,29 +180,31 @@ async function main(): Promise<void> {
     }
   }
 
-  const collector = await startCollector(port, { exclude });
+  // Per-run secret: only processes launched here can post to /ingest.
+  const token = randomBytes(24).toString('hex');
+  const bufferLimit = Number(process.env.NETBRIDGE_BUFFER_LIMIT) || undefined;
+  const allowedHosts = parseAllowedHosts(process.env.NETBRIDGE_ALLOWED_HOSTS);
+  const collector = await startCollector(port, { exclude, token, bufferLimit, allowedHosts });
 
-  const preloadPath = path.join(__dirname, 'preload.js');
   const existingNodeOptions = process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : '';
   const env = {
     ...process.env,
-    NODE_OPTIONS: `${existingNodeOptions}--require "${preloadPath}"`,
+    NODE_OPTIONS: `${existingNodeOptions}--require ${quoteNodeOption(path.join(__dirname, 'preload.js'))}`,
     NETBRIDGE_PORT: String(collector.port),
+    NETBRIDGE_TOKEN: token,
   };
 
   if (shellCommand) console.log(`\n  running: ${shellCommand}`);
   console.log(`\n  netbridge UI  →  http://localhost:${collector.port}\n`);
 
+  // On Windows a bare command like `next`/`pnpm` resolves to a `.cmd` shim
+  // that only runs through a shell, so the argv becomes one quoted command
+  // line. POSIX keeps shell:false so signals and arg passing stay exact.
   const child = shellCommand
     ? spawn(shellCommand, { stdio: 'inherit', env, shell: true })
-    : spawn(rest[0], rest.slice(1), {
-        stdio: 'inherit',
-        env,
-        // On Windows a bare command like `next`/`pnpm` resolves to a `.cmd` shim
-        // that is only runnable through a shell — without this, spawn ENOENTs.
-        // POSIX keeps shell:false so signals and arg passing stay exact.
-        shell: process.platform === 'win32',
-      });
+    : process.platform === 'win32'
+      ? spawn(rest.map(quoteWindowsArg).join(' '), { stdio: 'inherit', env, shell: true })
+      : spawn(rest[0], rest.slice(1), { stdio: 'inherit', env });
 
   child.on('error', (err) => {
     console.error(`[netbridge] failed to start "${shellCommand ?? rest[0]}":`, err.message);
@@ -202,20 +212,25 @@ async function main(): Promise<void> {
     process.exit(1);
   });
 
-  const forward = (signal: NodeJS.Signals) => {
-    process.on(signal, () => {
-      // Terminal sends the signal to the whole foreground group already; this
-      // covers non-tty cases. Never exit before the child does.
-      if (child.exitCode === null) child.kill(signal);
-    });
-  };
-  forward('SIGINT');
-  forward('SIGTERM');
+  // Never exit before the child does: handle the signal here and pass it on.
+  // Ctrl+C in a terminal already reaches the child directly (it is in the
+  // same foreground process group), and many dev servers read a second
+  // SIGINT as "force quit", so SIGINT is only forwarded off-terminal (a
+  // parent tool or `kill` signalling netbridge alone). Terminals never send
+  // SIGTERM, so it is always forwarded.
+  const interactive = Boolean(process.stdin.isTTY);
+  process.on('SIGINT', () => {
+    if (!interactive && child.exitCode === null) child.kill('SIGINT');
+  });
+  process.on('SIGTERM', () => {
+    if (child.exitCode === null) child.kill('SIGTERM');
+  });
 
   child.on('exit', (code, signal) => {
     collector.close();
-    if (signal) process.exit(0);
-    process.exit(code ?? 0);
+    // A child killed by a signal reports it the shell way (SIGTERM → 143), so
+    // scripts and CI see the failure instead of a success.
+    process.exit(signal ? 128 + (osConstants.signals[signal] ?? 0) : (code ?? 0));
   });
 }
 

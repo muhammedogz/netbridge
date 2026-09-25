@@ -33,7 +33,7 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 }
 
 export function App({ config }: { config: ViewConfig }) {
-  const { requests, live, clearAll } = useRequests();
+  const { requests, live, clearAll } = useRequests(config.bufferLimit);
   const [filterText, setFilterText] = useFilterText(config);
   const [methods, setMethods] = useState<ReadonlySet<string>>(new Set());
   const [statuses, setStatuses] = useState<ReadonlySet<StatusClass>>(new Set());
@@ -129,6 +129,7 @@ export function App({ config }: { config: ViewConfig }) {
         />
         <ExportMenu onExport={onExport} />
         <button
+          type="button"
           onClick={async () => {
             await clearAll();
             setSelectedId(null);

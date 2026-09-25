@@ -86,11 +86,11 @@ td.seq { color: var(--fg-dim); text-align: right; width: 1%; user-select: none; 
 #detail.open { width: 46%; min-width: 380px; }
 #detail .inner { padding: 12px; position: relative; }
 #detail h2 { font-size: 12px; word-break: break-all; margin-bottom: 4px; padding-right: 28px; }
-#detail .close { position: absolute; top: 8px; right: 10px; cursor: pointer; color: var(--fg-dim); padding: 2px 8px; }
+#detail .close { position: absolute; top: 8px; right: 10px; cursor: pointer; color: var(--fg-dim); padding: 2px 8px; background: none; border: 0; }
 #detail .close:hover { color: var(--fg); }
 
 .tabbar { display: flex; gap: 0; margin-top: 12px; border-bottom: 1px solid var(--border); }
-.tabbar .tab { padding: 6px 16px; cursor: pointer; color: var(--fg-dim); border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; font-size: 12px; }
+.tabbar .tab { background: none; padding: 6px 16px; cursor: pointer; color: var(--fg-dim); border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0; font-size: 12px; }
 .tabbar .tab:hover { color: var(--fg); }
 .tabbar .tab.active { color: var(--accent); background: var(--bg); border-color: var(--border); position: relative; top: 1px; }
 

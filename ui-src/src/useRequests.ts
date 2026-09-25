@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { DEFAULT_BUFFER_LIMIT, MAX_ENTRIES, entrySize, mergeEvent } from '../../src/protocol';
 import type { CapturedRequest, WireEvent } from './types';
 
 /**
- * Hard cap on retained rows. Mirrors the collector's MAX_EVENTS so a long,
- * high-volume session can't grow the client map (and the un-virtualized table)
- * without bound; the oldest rows — which a fresh snapshot would also have
- * dropped — are evicted first.
+ * Retention mirrors the collector: at most MAX_ENTRIES rows and `limit`
+ * characters of bodies and headers, so a long, high-volume session can't grow
+ * the client map (and the un-virtualized table) without bound. The oldest
+ * rows, which a fresh snapshot would also have dropped, go first.
  */
-const MAX_ROWS = 4000;
-
-/** Evict the oldest-inserted (lowest-seq) rows once past the retention cap. */
-function trim(map: Map<string, CapturedRequest>): void {
-  while (map.size > MAX_ROWS) {
-    const oldest = map.keys().next().value;
-    if (oldest === undefined) break;
-    map.delete(oldest);
+function trim(map: Map<string, CapturedRequest>, limit: number): void {
+  let bytes = 0;
+  for (const r of map.values()) bytes += entrySize(r);
+  for (const [id, r] of map) {
+    if (map.size <= 1 || (map.size <= MAX_ENTRIES && bytes <= limit)) break;
+    bytes -= entrySize(r);
+    map.delete(id);
   }
 }
 
@@ -25,7 +25,7 @@ interface RequestsState {
 }
 
 /** Connects to the collector's SSE stream and maintains the request table. */
-export function useRequests(): RequestsState {
+export function useRequests(bufferLimit = DEFAULT_BUFFER_LIMIT): RequestsState {
   const mapRef = useRef<Map<string, CapturedRequest>>(new Map());
   const seqRef = useRef(0);
   const frameRef = useRef<number | null>(null);
@@ -33,8 +33,10 @@ export function useRequests(): RequestsState {
   const [requests, setRequests] = useState<CapturedRequest[]>([]);
 
   const publish = useCallback(() => {
+    // Once per frame, not per event: sizing the table is O(rows).
+    trim(mapRef.current, bufferLimit);
     setRequests([...mapRef.current.values()].sort((a, b) => a.seq - b.seq));
-  }, []);
+  }, [bufferLimit]);
 
   // Coalesce bursts of SSE events into a single render per animation frame.
   // The map stays authoritative, so no events are dropped — only the redundant
@@ -50,14 +52,8 @@ export function useRequests(): RequestsState {
 
   const applyEvent = useCallback((e: WireEvent) => {
     const map = mapRef.current;
-    const existing: CapturedRequest =
-      map.get(e.id) ?? ({ id: e.id, seq: ++seqRef.current } as CapturedRequest);
-    for (const [k, v] of Object.entries(e)) {
-      if (v !== undefined && k !== 'phase') (existing as any)[k] = v;
-    }
-    existing.state =
-      e.phase === 'error' ? 'error' : e.phase === 'end' ? 'done' : existing.state || 'pending';
-    map.set(e.id, existing);
+    const existing = map.get(e.id) ?? ({ id: e.id, seq: ++seqRef.current } as CapturedRequest);
+    map.set(e.id, mergeEvent(existing, e));
   }, []);
 
   useEffect(() => {
@@ -76,7 +72,6 @@ export function useRequests(): RequestsState {
           state: (r.state as CapturedRequest['state']) ?? 'pending',
         });
       }
-      trim(mapRef.current);
       schedulePublish();
     });
     es.addEventListener('clear', () => {
@@ -86,7 +81,6 @@ export function useRequests(): RequestsState {
     });
     es.onmessage = (ev) => {
       applyEvent(JSON.parse(ev.data) as WireEvent);
-      trim(mapRef.current);
       schedulePublish();
     };
     return () => {

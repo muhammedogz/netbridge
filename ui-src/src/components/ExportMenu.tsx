@@ -46,6 +46,7 @@ export function ExportMenu({ onExport }: { onExport: (kind: ExportKind) => Promi
   return (
     <span className="copymenu" ref={rootRef}>
       <button
+        type="button"
         className={`copymenu-main ${flash ? 'flash' : ''}`}
         title="download all captured requests as JSON"
         onClick={() => run('json')}
@@ -53,6 +54,7 @@ export function ExportMenu({ onExport }: { onExport: (kind: ExportKind) => Promi
         export
       </button>
       <button
+        type="button"
         className="copymenu-caret"
         title="export format options"
         aria-haspopup="menu"
@@ -64,7 +66,7 @@ export function ExportMenu({ onExport }: { onExport: (kind: ExportKind) => Promi
       {open && (
         <div className="copymenu-pop right" role="menu">
           {ITEMS.map((item) => (
-            <button key={item.kind} role="menuitem" onClick={() => run(item.kind)}>
+            <button type="button" key={item.kind} role="menuitem" onClick={() => run(item.kind)}>
               {item.label}
             </button>
           ))}

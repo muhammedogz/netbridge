@@ -65,6 +65,7 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
   return (
     <span className="copymenu" ref={rootRef}>
       <button
+        type="button"
         className={`iconbtn copymenu-main ${flash ? 'flash' : ''}`}
         title="copy this request as Markdown (essentials)"
         onClick={() => doCopy(ITEMS[0])}
@@ -72,6 +73,7 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
         {flash ? 'copied!' : 'copy request'}
       </button>
       <button
+        type="button"
         className="iconbtn copymenu-caret"
         title="copy format options"
         aria-haspopup="menu"
@@ -83,12 +85,12 @@ export function CopyMenu({ r }: { r: CapturedRequest }) {
       {open && (
         <div className="copymenu-pop" role="menu">
           {ITEMS.map((item) => (
-            <button key={item.label} role="menuitem" onClick={() => doCopy(item)}>
+            <button type="button" key={item.label} role="menuitem" onClick={() => doCopy(item)}>
               {item.label}
             </button>
           ))}
           <div className="copymenu-div" />
-          <button role="menuitem" onClick={() => doCopy(AI_ITEM)}>
+          <button type="button" role="menuitem" onClick={() => doCopy(AI_ITEM)}>
             {AI_ITEM.label}
           </button>
         </div>

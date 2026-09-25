@@ -6,18 +6,42 @@ on:
   pull_request:
 
 jobs:
-  test:
-    name: build & test (node ${{ matrix.node }})
+  lint:
+    name: lint & typecheck
     runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: pnpm/action-setup@v6
+        # version comes from the packageManager field in package.json
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Lint
+        run: pnpm lint
+      - name: Typecheck (cli + ui)
+        run: pnpm exec tsc --noEmit && pnpm typecheck:ui
+
+  test:
+    name: test (${{ matrix.os }}, node ${{ matrix.node }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest]
         node: [18, 20, 22, 24]
+        include:
+          # Windows and macOS: the capture layer, CLI spawning and signals
+          # differ per platform; one Node version each keeps the bill small.
+          - os: windows-latest
+            node: 22
+          - os: macos-latest
+            node: 22
     steps:
       - uses: actions/checkout@v6
 
       - uses: pnpm/action-setup@v6
-        # version comes from the packageManager field in package.json
 
       - uses: actions/setup-node@v6
         with:
@@ -30,14 +54,23 @@ jobs:
       - name: Build (cli + ui)
         run: pnpm build
 
-      - name: Smoke test (no network needed)
+      - name: Test (no network needed)
         run: pnpm test
 
+      - name: Heavy test (collector past V8's max string length)
+        if: matrix.os == 'ubuntu-latest' && matrix.node == 22
+        env:
+          NETBRIDGE_HEAVY_TESTS: '1'
+        run: node test/run.mjs limits
+
       - name: Verify npm tarball contents
+        if: matrix.os == 'ubuntu-latest'
         run: |
           npm pack --dry-run 2>&1 | tee pack.txt
           grep -q "dist/cli.js" pack.txt
           grep -q "dist/preload.js" pack.txt
+          grep -q "dist/collector/index.js" pack.txt
           grep -q "ui/index.html" pack.txt
           grep -q "ui/assets/" pack.txt
+          if grep -q "dist/server.js" pack.txt; then echo "stale dist/server.js in tarball" >&2; exit 1; fi
           echo "tarball contents ok"

@@ -35,6 +35,25 @@ const stream = new ReadableStream({
 const r2 = await fetch(new Request(u('/echo', 'request-stream'), { method: 'POST', body: stream, duplex: 'half' }));
 console.log(`[edge] request-stream echoed ${JSON.parse(await r2.text()).echoed.length}`);
 
+// Bodies passed in init that used to go uncaptured: FormData, Blob and
+// streams (large and small).
+const fd = new FormData();
+fd.append('hello', 'world');
+fd.append('upload', new Blob(['file-contents'], { type: 'text/plain' }), 'x.txt');
+await (await fetch(u('/echo', 'formdata'), { method: 'POST', body: fd })).text();
+await (await fetch(u('/echo', 'blob'), { method: 'POST', body: new Blob(['blob-body']) })).text();
+const chunks = (n, size, ch) =>
+  new ReadableStream({
+    start(controller) {
+      for (let i = 0; i < n; i++) controller.enqueue(new TextEncoder().encode(ch.repeat(size)));
+      controller.close();
+    },
+  });
+const r3 = await fetch(u('/echo', 'init-stream'), { method: 'POST', body: chunks(48, 64 * 1024, 't'), duplex: 'half' });
+console.log(`[edge] init-stream echoed ${JSON.parse(await r3.text()).echoed.length}`);
+const r4 = await fetch(u('/echo', 'init-stream-small'), { method: 'POST', body: chunks(3, 1, 'q'), duplex: 'half' });
+console.log(`[edge] init-stream-small echoed ${JSON.parse(await r4.text()).echoed}`);
+
 // IPv6 literal host: the url needs brackets.
 const v6 = http.createServer((_req, res) => res.end('v6'));
 try {

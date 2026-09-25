@@ -67,6 +67,53 @@ async function readLimited(stream: ReadableStream<Uint8Array>): Promise<BodyInfo
   return limitedBody(collector.buffer(), collector.truncated);
 }
 
+/**
+ * Copies a request body stream while the upload runs. It reads its own tee
+ * branch, never the one being sent, up to the body limit. snapshot() returns
+ * what arrived so far; a copy cut short is marked truncated.
+ */
+class StreamTap {
+  private collector = new BodyCollector();
+  private reader: ReadableStreamDefaultReader<Uint8Array>;
+  private done = false;
+
+  constructor(stream: ReadableStream<Uint8Array>) {
+    this.reader = stream.getReader();
+    this.pump().catch(() => {
+      this.done = true;
+    });
+  }
+
+  private async pump(): Promise<void> {
+    for (;;) {
+      const { done, value } = await this.reader.read();
+      if (done) break;
+      this.collector.push(value);
+      if (this.collector.truncated) {
+        this.reader.cancel().catch(() => {});
+        break;
+      }
+    }
+    this.done = true;
+  }
+
+  snapshot(): BodyInfo {
+    const complete = this.done;
+    // Stop copying: the sending branch is unaffected by cancelling ours.
+    if (!complete) this.reader.cancel().catch(() => {});
+    return limitedBody(this.collector.buffer(), this.collector.truncated || !complete);
+  }
+}
+
+function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
+  return !!value && typeof (value as ReadableStream).getReader === 'function' && typeof (value as ReadableStream).tee === 'function';
+}
+
+/** Event fields for a captured request body. */
+function reqBodyFields(info: BodyInfo) {
+  return { reqBody: info.body, reqBodyEncoding: info.encoding, reqBodyTruncated: info.truncated };
+}
+
 async function captureRequestBody(input: unknown, init: RequestInit | undefined): Promise<BodyInfo> {
   try {
     const source: unknown = init?.body;
@@ -82,7 +129,19 @@ async function captureRequestBody(input: unknown, init: RequestInit | undefined)
       return { body: source.slice(0, config.bodyLimit), encoding: 'utf8', truncated };
     }
     if (source instanceof URLSearchParams) {
-      return { body: source.toString().slice(0, config.bodyLimit), encoding: 'utf8' };
+      const text = source.toString();
+      return { body: text.slice(0, config.bodyLimit), encoding: 'utf8', truncated: text.length > config.bodyLimit || undefined };
+    }
+    if (typeof Blob !== 'undefined' && source instanceof Blob) {
+      // Blobs are immutable: reading a slice leaves the one being sent intact.
+      const buf = Buffer.from(await source.slice(0, config.bodyLimit).arrayBuffer());
+      return limitedBody(buf, source.size > config.bodyLimit);
+    }
+    if (typeof FormData !== 'undefined' && source instanceof FormData) {
+      // Serialized as multipart the way fetch sends it, read up to the limit.
+      // fetch picks its own random boundary, so the separator lines differ
+      // from the wire; the parts themselves are the same.
+      return await readLimited(new Response(source).body as ReadableStream<Uint8Array>);
     }
     if (Buffer.isBuffer(source) || source instanceof Uint8Array || source instanceof ArrayBuffer) {
       const buf = Buffer.isBuffer(source)
@@ -90,8 +149,8 @@ async function captureRequestBody(input: unknown, init: RequestInit | undefined)
         : Buffer.from(source instanceof ArrayBuffer ? new Uint8Array(source) : source);
       return limitedBody(buf.subarray(0, config.bodyLimit), buf.length > config.bodyLimit);
     }
-    // FormData / Blob / ReadableStream in init: skip (cannot read without
-    // consuming the caller's stream or heavy buffering).
+    // ReadableStream: tapped while sending (see patchFetch); anything else
+    // (an async iterable, …) is not captured.
     return {};
   } catch {
     return {};
@@ -203,6 +262,21 @@ export function patchFetch(): void {
 
     const reqBodyInfo = await captureRequestBody(input, init);
 
+    // A stream body can only be read once: send one tee branch and copy the
+    // other as the upload runs. The copy joins the end (or error) event.
+    let sendInit = init;
+    let tap: StreamTap | undefined;
+    try {
+      if (init && isReadableStream(init.body)) {
+        const [toSend, toCopy] = init.body.tee();
+        sendInit = { ...init, body: toSend };
+        tap = new StreamTap(toCopy);
+      }
+    } catch {
+      sendInit = init;
+      tap = undefined;
+    }
+
     emit({
       id,
       phase: 'start',
@@ -212,14 +286,13 @@ export function patchFetch(): void {
       method,
       url,
       reqHeaders,
-      reqBody: reqBodyInfo.body,
-      reqBodyEncoding: reqBodyInfo.encoding,
-      reqBodyTruncated: reqBodyInfo.truncated,
+      ...reqBodyFields(reqBodyInfo),
     });
 
     try {
-      const response = await original.call(globalThis, input, init);
+      const response = await original.call(globalThis, input, sendInit);
       const base = {
+        ...(tap ? reqBodyFields(tap.snapshot()) : {}),
         pid: process.pid,
         source: 'fetch' as const,
         method,
@@ -241,6 +314,7 @@ export function patchFetch(): void {
         url,
         durationMs: Date.now() - start,
         error: err instanceof Error ? err.message : String(err),
+        ...(tap ? reqBodyFields(tap.snapshot()) : {}),
       });
       throw err;
     }

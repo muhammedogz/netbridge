@@ -5,21 +5,28 @@
  *   GET  /              the web UI
  *   GET  /events        SSE stream of capture events (backlog + live)
  *   POST /ingest        NDJSON capture events from preloaded app processes
- *   GET  /api/health    discovery: { app: "netbridge", version, requests }
- *   GET  /api/requests  JSON dump of the merged request table
+ *   GET  /api/health    discovery: { app: "netbridge", version, requests, ports }
+ *   GET  /api/requests  JSON dump of the merged request table; optional query:
+ *                       parent=<id> source=<s> since=<ms> limit=<n> summary=1
+ *   GET  /api/requests/<id>  one entry
  *   GET  /api/config    view settings for the UI (--exclude patterns)
  *   POST /api/clear     reset the buffer
  *   POST /api/resend    re-issue a captured (optionally edited) request
+ *   GET/PUT/POST /api/mocks, DELETE /api/mocks/<id>   mock rules
+ *   GET  /api/mocks/stream   rules feed for the app processes (token)
+ *   *    /__mock/<id>   answers an http-module call a rule mocks (token)
  */
 import * as http from 'http';
-import * as path from 'path';
-import type { NetbridgeEvent } from '../protocol';
-import { refusal } from './guard';
+import { summarize } from '../protocol';
+import type { Entry, NetbridgeEvent } from '../protocol';
+import { refusal, tokenMatches } from './guard';
 import { jsonError, readBody, readJson, sendJson, streamJsonArray } from './http-util';
+import { packageVersion } from '../version';
+import { MockStore } from './mocks';
 import { executeResend, parseResend } from './resend';
 import { SseHub } from './sse';
 import { serveStatic } from './static';
-import { RequestStore, isEvent } from './store';
+import { RequestStore, isEvent, isListen } from './store';
 
 // Hard cap on a single /ingest body: a buggy or runaway producer must never be
 // able to OOM the collector. Comfortably fits a batch of NDJSON capture events.
@@ -41,20 +48,41 @@ export interface CollectorOptions {
   bufferLimit?: number;
   /** Extra host names served besides loopback (NETBRIDGE_ALLOWED_HOSTS). */
   allowedHosts?: ReadonlySet<string>;
+  /** Mock rules (and the --mocks file they are saved to). */
+  mocks?: MockStore;
 }
 
-function packageVersion(): string {
+/** Whether a process is still running (a port it reported may be stale). */
+function alive(pid: number): boolean {
   try {
-    // package.json ships in the npm tarball next to dist/.
-    return require(path.join(__dirname, '..', '..', 'package.json')).version;
-  } catch {
-    return '0.0.0';
+    process.kill(pid, 0);
+    return true;
+  } catch (err) {
+    return (err as NodeJS.ErrnoException).code === 'EPERM';
   }
+}
+
+/** The /api/requests query: which entries, and whether to drop bodies. */
+function selectEntries(all: Entry[], query: URLSearchParams): Entry[] {
+  let list = all;
+  const parent = query.get('parent');
+  const source = query.get('source');
+  const since = Number(query.get('since'));
+  if (parent) list = list.filter((e) => e.parentId === parent);
+  if (source) list = list.filter((e) => e.source === source);
+  if (since > 0) list = list.filter((e) => e.ts >= since);
+  const limit = Number(query.get('limit'));
+  if (limit > 0 && list.length > limit) list = list.slice(-limit);
+  return list;
 }
 
 export function startCollector(preferredPort: number, options: CollectorOptions): Promise<CollectorHandle> {
   const store = new RequestStore(options.bufferLimit);
   const hub = new SseHub();
+  const mocks = options.mocks ?? new MockStore();
+  mocks.onChange((rules) => hub.named('mocks', rules));
+  // Ports the app processes listen on, by port: the pid that reported it.
+  const ports = new Map<number, number>();
   const version = packageVersion();
   // startedAt tells runs apart: the UI merges the exclusions into its saved
   // filter once per run, so a reload doesn't undo the user's edits.
@@ -62,6 +90,7 @@ export function startCollector(preferredPort: number, options: CollectorOptions)
     exclude: options.exclude ?? [],
     startedAt: Date.now(),
     bufferLimit: store.maxBytes,
+    version,
   });
   // The bound port, for the Origin check; set once listening.
   let listeningPort = 0;
@@ -83,6 +112,7 @@ export function startCollector(preferredPort: number, options: CollectorOptions)
         continue; // skip malformed lines
       }
       if (isEvent(event)) record(event);
+      else if (isListen(event)) ports.set(event.port, event.pid);
     }
     res.writeHead(204).end();
   }
@@ -106,12 +136,36 @@ export function startCollector(preferredPort: number, options: CollectorOptions)
     sendJson(res, 200, store.get(id) ?? { id });
   }
 
+  async function editMocks(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+    // Same reasoning as /api/resend: JSON only, so a cross-origin page can't
+    // send it without a preflight that fails.
+    const ctype = String(req.headers['content-type'] || '');
+    if (!/^application\/json\b/i.test(ctype.trim())) {
+      return jsonError(res, 415, 'content-type must be application/json');
+    }
+    const payload = await readJson(req, res, MAX_RESEND_BYTES);
+    if (payload === undefined) return;
+    const result = req.method === 'PUT' ? mocks.replace(payload) : mocks.upsert(payload);
+    if (typeof result === 'string') return jsonError(res, 400, result);
+    sendJson(res, 200, result);
+  }
+
   async function route(req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
     const url = req.url || '/';
     const method = req.method;
+    const { pathname, searchParams } = new URL(url, 'http://collector');
 
     const refused = refusal(req, listeningPort, options.token, options.allowedHosts);
     if (refused) return jsonError(res, refused.status, refused.error);
+
+    // Only the app processes netbridge launched hold the token.
+    if (pathname === '/api/mocks/stream' || pathname.startsWith('/__mock/')) {
+      if (!tokenMatches(req.headers['x-netbridge-token'], options.token)) {
+        return jsonError(res, 401, 'missing or invalid token');
+      }
+      if (pathname === '/api/mocks/stream') return mocks.subscribe(req, res);
+      return mocks.serve(decodeURIComponent(pathname.slice('/__mock/'.length)), req, res);
+    }
 
     if (method === 'POST' && url === '/ingest') return ingest(req, res);
     if (method === 'POST' && url === '/api/resend') return resend(req, res);
@@ -123,9 +177,25 @@ export function startCollector(preferredPort: number, options: CollectorOptions)
     }
     if (method === 'GET' && url === '/events') return hub.subscribe(req, res, store.values());
     if (method === 'GET' && url === '/api/health') {
-      return sendJson(res, 200, { app: 'netbridge', version, requests: store.size });
+      const live = [...ports].filter(([, pid]) => alive(pid)).map(([port]) => port);
+      return sendJson(res, 200, { app: 'netbridge', version, requests: store.size, ports: live });
     }
-    if (method === 'GET' && url === '/api/requests') return streamJsonArray(res, store.values());
+    if (method === 'GET' && pathname === '/api/requests') {
+      const list = selectEntries(store.values(), searchParams);
+      return streamJsonArray(res, searchParams.get('summary') === '1' ? list.map(summarize) : list);
+    }
+    if (method === 'GET' && pathname.startsWith('/api/requests/')) {
+      const entry = store.get(decodeURIComponent(pathname.slice('/api/requests/'.length)));
+      return entry ? sendJson(res, 200, entry) : jsonError(res, 404, 'unknown request id');
+    }
+    if (pathname === '/api/mocks') {
+      if (method === 'GET') return sendJson(res, 200, mocks.list());
+      if (method === 'PUT' || method === 'POST') return editMocks(req, res);
+    }
+    if (method === 'DELETE' && pathname.startsWith('/api/mocks/')) {
+      const removed = mocks.remove(decodeURIComponent(pathname.slice('/api/mocks/'.length)));
+      return removed ? void res.writeHead(204).end() : jsonError(res, 404, 'unknown mock rule');
+    }
     if (method === 'GET' && url === '/api/config') return sendJson(res, 200, viewConfig);
     if (method === 'GET') {
       if (serveStatic(url, res)) return;

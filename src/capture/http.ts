@@ -11,13 +11,18 @@
  *   network inspection gets wrong)
  */
 import type * as httpType from 'http';
+import type { MockRule } from '../protocol';
+import { currentParent } from './context';
+import { mockFor } from './mocks';
 import {
   BodyCollector,
+  config,
   decompressBody,
   emit,
   encodeBody,
   isOwnTraffic,
   nextId,
+  pristineHttpRequest,
   sanitizeHeaders,
 } from './shared';
 
@@ -61,9 +66,10 @@ export function buildUrl(protocol: string, args: unknown[]): { url: string; meth
   return { url, method };
 }
 
-function instrument(req: httpType.ClientRequest, url: string, method: string): void {
+function instrument(req: httpType.ClientRequest, url: string, method: string, rule?: MockRule): void {
   const id = nextId();
   const start = Date.now();
+  const parentId = currentParent();
   const reqBody = new BodyCollector();
   let startEmitted = false;
 
@@ -79,6 +85,8 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
       source: 'http',
       method,
       url,
+      parentId,
+      mocked: rule?.id,
       reqHeaders: sanitizeHeaders(safeGetHeaders(req)),
       reqBody: encoded?.body,
       reqBodyEncoding: encoded?.encoding,
@@ -109,9 +117,36 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
   // listener runs. Consumers like axios delete `content-encoding` from
   // res.headers synchronously in their response handler (they decompress
   // themselves); a plain req.on('response') would observe mutated headers.
+  // A delay-only rule holds the real response back; its body waits in the
+  // stream. If the caller gives up meanwhile (a timeout destroys the
+  // request), the held response must never reach it. Natural closes don't
+  // count: without keep-alive the socket closes as soon as the response is
+  // in, long before the delay is up, which also sets req.destroyed.
+  const holdResponse = !!rule?.delayMs && !rule.response && !rule.fail;
+  let cancelled = false;
+  if (holdResponse) {
+    const origDestroy = req.destroy;
+    req.destroy = function (this: httpType.ClientRequest, ...a: any[]) {
+      cancelled = true;
+      return (origDestroy as any).apply(this, a);
+    } as typeof req.destroy;
+    req.once('error', () => {
+      cancelled = true;
+    });
+  }
+
   const origReqEmit = req.emit.bind(req);
   req.emit = function (event: string | symbol, ...emitArgs: any[]) {
-    if (event === 'response') onResponse(emitArgs[0] as httpType.IncomingMessage);
+    if (event === 'response') {
+      onResponse(emitArgs[0] as httpType.IncomingMessage);
+      // Mocked responses are delayed by the collector instead.
+      if (holdResponse) {
+        setTimeout(() => {
+          if (!cancelled && !(req as { aborted?: boolean }).aborted) origReqEmit(event as any, ...emitArgs);
+        }, rule?.delayMs);
+        return true;
+      }
+    }
     return origReqEmit(event as any, ...emitArgs);
   } as typeof req.emit;
 
@@ -186,10 +221,89 @@ function instrument(req: httpType.ClientRequest, url: string, method: string): v
 
 function safeGetHeaders(req: httpType.ClientRequest): Record<string, unknown> {
   try {
-    return req.getHeaders();
+    const headers = req.getHeaders();
+    delete headers['x-netbridge-token'];
+    return headers;
   } catch {
     return {};
   }
+}
+
+/**
+ * Send a call a rule answers (or fails) to the collector's /__mock endpoint
+ * instead. For a fail rule the collector holds the call until failRequest
+ * destroys it. The
+ * caller's headers and callback are kept; transport options (agent, TLS,
+ * socket) belong to the real target and are dropped.
+ */
+function mockedRequest(args: unknown[], method: string, rule: MockRule): httpType.ClientRequest {
+  const cb = args.find((a) => typeof a === 'function') as ((res: httpType.IncomingMessage) => void) | undefined;
+  const options = args.find((a) => a && typeof a === 'object' && !(a instanceof URL)) as Record<string, any> | undefined;
+  const headers: Record<string, unknown> = {};
+  const given = options?.headers;
+  if (given && typeof given === 'object' && !Array.isArray(given)) {
+    // Host names the real target; Origin and Referer would read as a web page
+    // to the collector's guard and get the call refused.
+    for (const [k, v] of Object.entries(given)) {
+      if (!['host', 'origin', 'referer'].includes(k.toLowerCase())) headers[k] = v;
+    }
+  }
+  headers['x-netbridge-token'] = config.token;
+  return pristineHttpRequest(
+    {
+      host: '127.0.0.1',
+      port: config.port,
+      method,
+      path: `/__mock/${encodeURIComponent(rule.id)}`,
+      headers: headers as httpType.OutgoingHttpHeaders,
+      timeout: options?.timeout,
+      signal: options?.signal,
+      agent: false,
+    },
+    cb
+  );
+}
+
+/** A `fail` rule: the request errors out like a refused connection. */
+function failRequest(req: httpType.ClientRequest, rule: MockRule): void {
+  const err = Object.assign(new Error(`connect ECONNREFUSED (${rule.fail})`), { code: 'ECONNREFUSED' });
+  const fail = () => req.destroy(err);
+  if (rule.delayMs) {
+    const t = setTimeout(fail, rule.delayMs);
+    req.once('close', () => clearTimeout(t));
+  } else {
+    process.nextTick(fail);
+  }
+}
+
+/** Create the request for a call, mocked when a rule says so, and instrument it. */
+function request(original: (...args: any[]) => httpType.ClientRequest, protocol: string, args: any[], get: boolean) {
+  let target: { url: string; method: string } | undefined;
+  let rule: MockRule | undefined;
+  try {
+    target = buildUrl(protocol, args);
+    if (get) target.method = 'GET';
+    if (!target.url || isOwnTraffic(target.url)) target = undefined;
+    else rule = mockFor(target.method, target.url);
+  } catch {
+    target = undefined;
+  }
+  let req: httpType.ClientRequest;
+  // A rule that answers or fails never reaches the real backend: a failing
+  // POST must not have its side effects.
+  if (target && (rule?.response || rule?.fail)) {
+    req = mockedRequest(args, target.method, rule);
+    if (get) req.end();
+  } else {
+    req = original(...args);
+  }
+  try {
+    if (target) instrument(req, target.url, target.method, rule);
+    if (target && rule?.fail) failRequest(req, rule);
+  } catch {
+    /* never break the host app */
+  }
+  return req;
 }
 
 function wrapModule(mod: typeof httpType, protocol: 'http' | 'https'): void {
@@ -197,27 +311,13 @@ function wrapModule(mod: typeof httpType, protocol: 'http' | 'https'): void {
   const origGet = mod.get.bind(mod);
 
   mod.request = function (...args: any[]) {
-    const req = (origRequest as any)(...args);
-    try {
-      const { url, method } = buildUrl(protocol, args);
-      if (url && !isOwnTraffic(url)) instrument(req, url, method);
-    } catch {
-      /* never break the host app */
-    }
-    return req;
+    return request(origRequest as any, protocol, args, false);
   } as RequestFn;
 
   // http.get does NOT call the patched exports.request (it closes over the
   // internal function), so wrap it separately.
   mod.get = function (...args: any[]) {
-    const req = (origGet as any)(...args);
-    try {
-      const { url, method } = buildUrl(protocol, args);
-      if (url && !isOwnTraffic(url)) instrument(req, url, method || 'GET');
-    } catch {
-      /* never break the host app */
-    }
-    return req;
+    return request(origGet as any, protocol, args, true);
   } as typeof mod.get;
 }
 

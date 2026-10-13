@@ -85,3 +85,75 @@ describe('quoting', () => {
     it(`windows arg: ${label}`, () => assert.equal(quoteWindowsArg(input), expected));
   }
 });
+
+const { mockMatches, normalizeMockRule, normalizeMockRules, callSteps, callKey, startedAt } = require(
+  path.join(ROOT, 'dist', 'protocol.js')
+);
+
+describe('mock rule matching', () => {
+  const rule = (over) => ({ id: 'r', enabled: true, method: '', url: '/users', ...over });
+
+  it('matches a url substring, case-insensitively, for any method', () => {
+    assert.equal(mockMatches(rule(), 'GET', 'https://api.test/USERS/1'), true);
+    assert.equal(mockMatches(rule(), 'POST', 'https://api.test/users'), true);
+    assert.equal(mockMatches(rule(), 'GET', 'https://api.test/orders'), false);
+  });
+
+  it('honors the method and the enabled flag', () => {
+    assert.equal(mockMatches(rule({ method: 'POST' }), 'get', 'https://api.test/users'), false);
+    assert.equal(mockMatches(rule({ method: 'POST' }), 'post', 'https://api.test/users'), true);
+    assert.equal(mockMatches(rule({ enabled: false }), 'GET', 'https://api.test/users'), false);
+  });
+
+  it('treats * as a wildcard over the whole url, everything else literally', () => {
+    const r = rule({ url: 'https://api.test/users/*/orders?x=(1)' });
+    assert.equal(mockMatches(r, 'GET', 'https://api.test/users/42/orders?x=(1)'), true);
+    assert.equal(mockMatches(r, 'GET', 'https://api.test/users/42/orders?x=1'), false);
+    assert.equal(mockMatches(rule({ url: '*/users' }), 'GET', 'https://api.test/users/1'), false);
+  });
+
+  it('normalizes rules and reports the first bad one', () => {
+    const r = normalizeMockRule({ url: ' /x ', method: 'post', response: { body: [1] } }, 'm9');
+    assert.deepEqual(r, {
+      id: 'm9',
+      enabled: true,
+      method: 'POST',
+      url: '/x',
+      response: { status: 200, headers: { 'content-type': 'application/json' }, body: '[1]' },
+    });
+    assert.equal(normalizeMockRule({ url: '/x', method: '*' }, 'a').method, '');
+    assert.match(normalizeMockRules([{ url: '/a' }, { url: '' }]), /^rule 2: url is required/);
+    assert.deepEqual(
+      normalizeMockRules([{ id: 'a', url: '/a' }, { id: 'a', url: '/b' }]).map((x) => x.id),
+      ['a', 'a-']
+    );
+  });
+});
+
+describe('call trees', () => {
+  // ts is an entry's latest event: its end once settled.
+  const call = (start, dur) => ({ ts: start + dur, durationMs: dur, state: 'done' });
+
+  it('derives the start time', () => {
+    assert.equal(startedAt(call(100, 50)), 100);
+    assert.equal(startedAt({ ts: 100, state: 'pending' }), 100);
+  });
+
+  it('counts sequential steps', () => {
+    assert.equal(callSteps([call(0, 10), call(10, 10), call(21, 5)]), 3);
+    assert.equal(callSteps([call(0, 10), call(1, 10), call(2, 10)]), 1);
+    assert.equal(callSteps([call(0, 10), call(2, 10), call(30, 1)]), 2);
+    // A call that ends a moment after the next one starts still came first.
+    assert.equal(callSteps([call(0, 10), call(9, 10)]), 2);
+    assert.equal(callSteps([call(0, 75), call(71, 9)]), 2);
+    assert.equal(callSteps([call(0, 75), call(40, 9)]), 1);
+    assert.equal(callSteps([{ ts: 0, state: 'pending' }, call(50, 1)]), 1);
+  });
+
+  it('keys calls by method, url and body', () => {
+    const a = callKey({ method: 'POST', url: 'https://x/graphql', reqBody: '{"q":1}' });
+    const b = callKey({ method: 'POST', url: 'https://x/graphql', reqBody: '{"q":2}' });
+    assert.notEqual(a, b);
+    assert.equal(a, callKey({ method: 'POST', url: 'https://x/graphql', reqBody: '{"q":1}' }));
+  });
+});

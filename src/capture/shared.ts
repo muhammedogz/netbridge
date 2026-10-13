@@ -12,8 +12,9 @@ import type { NetbridgeEvent } from '../protocol';
 
 export type { NetbridgeEvent };
 
-// Pristine reference, captured at module load (before any patching).
-const pristineHttpRequest = http.request;
+// Pristine reference, captured at module load (before any patching). Also
+// what the mock rules use to reach the collector.
+export const pristineHttpRequest = http.request;
 
 export const config = {
   port: Number(process.env.NETBRIDGE_PORT || 0),
@@ -139,7 +140,7 @@ export function isOwnTraffic(url: string): boolean {
 // limit and OOM the host app. flush() drains fully every ~20ms in the happy
 // path, so this cap is only ever hit under genuine backpressure.
 const MAX_QUEUE = 10_000;
-let queue: NetbridgeEvent[] = [];
+let queue: object[] = [];
 let flushTimer: NodeJS.Timeout | null = null;
 
 // Keep each POST well under the collector's ingest cap (16MB): a burst of
@@ -193,11 +194,19 @@ function flush(): void {
 }
 
 export function emit(event: NetbridgeEvent): void {
+  send(event);
+}
+
+/**
+ * Queue a line for /ingest: a capture event, or a message such as
+ * `{ kind: 'listen' }` that the collector handles on its own.
+ */
+export function send(message: object): void {
   if (!config.port) return;
   // Drop under sustained backpressure rather than grow unbounded. Debugging
   // telemetry must never be the reason the host app runs out of memory.
   if (queue.length >= MAX_QUEUE) return;
-  queue.push(event);
+  queue.push(message);
   if (!flushTimer) {
     flushTimer = setTimeout(flush, 20);
     // Never keep the host process alive because of telemetry.

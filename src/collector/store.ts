@@ -11,6 +11,19 @@ export function isEvent(value: unknown): value is NetbridgeEvent {
   return typeof e.id === 'string' && e.id.length > 0 && PHASES.has(e.phase as string);
 }
 
+/** A `{ kind: 'listen' }` message: an app process listens on `port`. */
+export function isListen(value: unknown): value is { kind: 'listen'; pid: number; port: number } {
+  if (!value || typeof value !== 'object') return false;
+  const m = value as Record<string, unknown>;
+  return (
+    m.kind === 'listen' &&
+    Number.isInteger(m.pid) &&
+    Number.isInteger(m.port) &&
+    (m.port as number) > 0 &&
+    (m.port as number) < 65536
+  );
+}
+
 /**
  * Entries in arrival order, bounded by count and by total size: past either
  * limit the oldest go first. The newest entry always stays, however large.

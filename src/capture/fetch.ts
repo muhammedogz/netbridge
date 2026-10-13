@@ -9,6 +9,9 @@
  * (and before Next.js patches fetch for caching), so Next wraps OUR wrapper —
  * every real outbound call still flows through us.
  */
+import type { MockResponse, MockRule } from '../protocol';
+import { currentParent, runInFetch } from './context';
+import { mockFor, mocksReady } from './mocks';
 import {
   BodyCollector,
   config,
@@ -226,6 +229,48 @@ function captureResponseBody(response: Response, id: string, base: Record<string
     .catch(finishEmpty);
 }
 
+// Statuses whose responses carry no body (the Response constructor refuses one).
+const NULL_BODY = new Set([204, 205, 304]);
+
+function mockResponse(res: MockResponse): Response {
+  const body =
+    res.body == null || NULL_BODY.has(res.status)
+      ? null
+      : res.bodyEncoding === 'base64'
+        ? Buffer.from(res.body, 'base64')
+        : res.body;
+  return new Response(body, { status: res.status, headers: res.headers });
+}
+
+/** The error undici throws for a refused connection, for a `fail` rule. */
+function mockFailure(rule: MockRule): Error {
+  const cause = Object.assign(new Error(rule.fail), { code: 'ECONNREFUSED' });
+  return new TypeError('fetch failed', { cause });
+}
+
+function sleep(ms: number, signal: AbortSignal | null | undefined): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) return reject(signal.reason);
+    const t = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(t);
+        reject(signal.reason);
+      },
+      { once: true }
+    );
+  });
+}
+
+/** `fetch failed` says little on its own; undici puts the reason in `cause`. */
+function errorText(err: unknown): string {
+  if (!(err instanceof Error)) return String(err);
+  const cause = (err as { cause?: { code?: string; message?: string } }).cause;
+  const detail = cause?.message || cause?.code;
+  return detail && !err.message.includes(detail) ? `${err.message}: ${detail}` : err.message;
+}
+
 export function patchFetch(): void {
   const original = globalThis.fetch;
   if (typeof original !== 'function') return;
@@ -253,6 +298,10 @@ export function patchFetch(): void {
       return original.call(globalThis, input, init);
     }
 
+    const sync = mocksReady();
+    if (sync) await sync;
+    const rule = mockFor(method, url);
+    const parentId = currentParent();
     const id = nextId();
     const start = Date.now();
     const reqHeaders = sanitizeHeaders({
@@ -285,12 +334,18 @@ export function patchFetch(): void {
       source: 'fetch',
       method,
       url,
+      parentId,
+      mocked: rule?.id,
       reqHeaders,
       ...reqBodyFields(reqBodyInfo),
     });
 
     try {
-      const response = await original.call(globalThis, input, sendInit);
+      if (rule?.delayMs) await sleep(rule.delayMs, init?.signal ?? (isRequest(input) ? input.signal : undefined));
+      if (rule?.fail) throw mockFailure(rule);
+      const response = rule?.response
+        ? mockResponse(rule.response)
+        : await runInFetch(() => original.call(globalThis, input, sendInit));
       const base = {
         ...(tap ? reqBodyFields(tap.snapshot()) : {}),
         pid: process.pid,
@@ -313,7 +368,7 @@ export function patchFetch(): void {
         method,
         url,
         durationMs: Date.now() - start,
-        error: err instanceof Error ? err.message : String(err),
+        error: errorText(err),
         ...(tap ? reqBodyFields(tap.snapshot()) : {}),
       });
       throw err;

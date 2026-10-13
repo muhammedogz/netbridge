@@ -19,6 +19,26 @@ after(async () => {
   await origin?.close();
 });
 
+describe('version', () => {
+  const { version } = JSON.parse(fs.readFileSync(path.join(ROOT, 'package.json'), 'utf8'));
+
+  it('prints it with --version', () => {
+    const r = spawnSync(process.execPath, [CLI, '--version'], { encoding: 'utf8' });
+    assert.equal(r.status, 0);
+    assert.equal(r.stdout.trim(), version);
+  });
+
+  it('shows it in the start banner and to the UI', async () => {
+    const nb = await runCli({ command: [process.execPath, '-e', 'setTimeout(() => {}, 5000)'] });
+    try {
+      assert.match(nb.output, new RegExp(`netbridge v${version.replace(/\./g, '\\.')} {2}UI`));
+      assert.equal((await (await fetch(`${nb.base}/api/config`)).json()).version, version);
+    } finally {
+      await nb.stop();
+    }
+  });
+});
+
 describe('--exclude', () => {
   it('seeds the UI config without affecting capture', async () => {
     const EXCLUDE = ['/gzip', 'method:options'];

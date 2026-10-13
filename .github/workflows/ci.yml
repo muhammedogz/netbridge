@@ -72,5 +72,8 @@ jobs:
           grep -q "dist/collector/index.js" pack.txt
           grep -q "ui/index.html" pack.txt
           grep -q "ui/assets/" pack.txt
+          grep -q "ui/overlay.html" pack.txt
+          grep -q "ui/overlay.js" pack.txt
+          grep -q "dist/mcp.js" pack.txt
           if grep -q "dist/server.js" pack.txt; then echo "stale dist/server.js in tarball" >&2; exit 1; fi
           echo "tarball contents ok"

@@ -5,8 +5,11 @@
  *   netbridge -- <command...>     run a command with HTTP capture enabled
  *   netbridge <command...>        same (the -- is optional)
  *   netbridge init                add a dev:netbridge script to package.json
+ *   netbridge mcp                 MCP server for coding agents (stdio)
  *   netbridge --port 4500 -- ...  pick the UI port
  *   netbridge --exclude X -- ...  start the UI with urls containing X hidden
+ *   netbridge --mocks F -- ...    load and save mock rules in file F
+ *   netbridge --overlay -- ...    show the netbridge bubble on the app's pages
  */
 import { spawn } from 'child_process';
 import { randomBytes } from 'crypto';
@@ -16,25 +19,35 @@ import * as path from 'path';
 import * as readline from 'readline';
 import { startCollector } from './collector';
 import { parseAllowedHosts } from './collector/guard';
+import { MockStore } from './collector/mocks';
 import { detectProject, runInit, runScriptCommand } from './init';
+import { runMcp } from './mcp';
+import { packageVersion } from './version';
 import { quoteNodeOption, quoteWindowsArg } from './quote';
 
 const DEFAULT_PORT = 4499;
 
 function printHelp(): void {
-  console.log(`netbridge — the network tab your server never had
+  console.log(`netbridge ${packageVersion()} — the network tab your server never had
 
 Usage:
   netbridge [options] [--] <command...>   run command with HTTP capture
   netbridge [options]                     pick what to run interactively (TTY)
   netbridge init                          add dev:netbridge script to package.json
+  netbridge mcp                           MCP server for coding agents (stdio):
+                                          claude mcp add netbridge -- npx -y netbridge mcp
 
 Options:
+  -v, --version          print the netbridge version
   -p, --port N           UI port (default ${DEFAULT_PORT}, next free one if busy;
                          0 picks any free port)
   --exclude PATTERN      open the UI with requests whose url contains PATTERN
                          hidden; also takes filter terms such as method:options.
                          Repeatable. View only: everything is still captured.
+  --mocks FILE           load mock rules from FILE (a JSON array) and save
+                         every change made in the UI or over the API back to it
+  --overlay              add a small netbridge bubble to the app's HTML pages
+                         (opt-in: it appends a script tag to each page)
 
 Examples:
   netbridge -- next dev
@@ -133,6 +146,14 @@ async function main(): Promise<void> {
   if (argv[0] === 'init') {
     process.exit(runInit(process.cwd()));
   }
+  if (argv[0] === 'mcp') {
+    runMcp();
+    return;
+  }
+  if (argv[0] === '--version' || argv[0] === '-v') {
+    console.log(packageVersion());
+    process.exit(0);
+  }
   if (argv[0] === '--help' || argv[0] === '-h') {
     printHelp();
     process.exit(0);
@@ -140,6 +161,8 @@ async function main(): Promise<void> {
 
   let port = DEFAULT_PORT;
   const exclude: string[] = [];
+  let mocksFile: string | undefined;
+  let overlay = false;
   let rest = [...argv];
   // Options come first, in any order; the command starts at `--` or at the
   // first word that isn't one of them.
@@ -161,6 +184,16 @@ async function main(): Promise<void> {
       }
       exclude.push(pattern);
       rest = rest.slice(2);
+    } else if (rest[0] === '--mocks') {
+      if (!rest[1] || rest[1].startsWith('-')) {
+        console.error('[netbridge] --mocks needs a file path, e.g. --mocks netbridge.mocks.json');
+        process.exit(1);
+      }
+      mocksFile = path.resolve(rest[1]);
+      rest = rest.slice(2);
+    } else if (rest[0] === '--overlay') {
+      overlay = true;
+      rest = rest.slice(1);
     } else {
       break;
     }
@@ -184,7 +217,14 @@ async function main(): Promise<void> {
   const token = randomBytes(24).toString('hex');
   const bufferLimit = Number(process.env.NETBRIDGE_BUFFER_LIMIT) || undefined;
   const allowedHosts = parseAllowedHosts(process.env.NETBRIDGE_ALLOWED_HOSTS);
-  const collector = await startCollector(port, { exclude, token, bufferLimit, allowedHosts });
+  let mocks: MockStore;
+  try {
+    mocks = new MockStore(mocksFile);
+  } catch (err) {
+    console.error(`[netbridge] ${(err as Error).message}`);
+    process.exit(1);
+  }
+  const collector = await startCollector(port, { exclude, token, bufferLimit, allowedHosts, mocks });
 
   const existingNodeOptions = process.env.NODE_OPTIONS ? `${process.env.NODE_OPTIONS} ` : '';
   const env = {
@@ -192,10 +232,17 @@ async function main(): Promise<void> {
     NODE_OPTIONS: `${existingNodeOptions}--require ${quoteNodeOption(path.join(__dirname, 'preload.js'))}`,
     NETBRIDGE_PORT: String(collector.port),
     NETBRIDGE_TOKEN: token,
+    ...(mocksFile ? { NETBRIDGE_MOCKS_FILE: mocksFile } : {}),
+    ...(overlay ? { NETBRIDGE_OVERLAY: '1' } : {}),
   };
 
   if (shellCommand) console.log(`\n  running: ${shellCommand}`);
-  console.log(`\n  netbridge UI  →  http://localhost:${collector.port}\n`);
+  console.log(`\n  netbridge v${packageVersion()}  UI  →  http://localhost:${collector.port}\n`);
+  const rules = mocks.list();
+  if (rules.length) {
+    const on = rules.filter((r) => r.enabled).length;
+    console.log(`  mocks: ${on} of ${rules.length} rule(s) enabled, from ${mocksFile}\n`);
+  }
 
   // On Windows a bare command like `next`/`pnpm` resolves to a `.cmd` shim
   // that only runs through a shell, so the argv becomes one quoted command

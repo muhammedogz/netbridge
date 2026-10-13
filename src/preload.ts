@@ -15,8 +15,17 @@ try {
     const { patchFetch } = require('./capture/fetch');
     // eslint-disable-next-line @typescript-eslint/no-var-requires
     const { patchHttp } = require('./capture/http');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { patchUndici } = require('./capture/undici');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { patchInbound } = require('./capture/inbound');
+    // eslint-disable-next-line @typescript-eslint/no-var-requires
+    const { startMockSync } = require('./capture/mocks');
+    startMockSync();
     patchHttp();
     patchFetch();
+    patchUndici();
+    patchInbound();
     if (process.env.NETBRIDGE_QUIET !== '1') {
       // eslint-disable-next-line no-console
       console.log(

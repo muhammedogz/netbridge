@@ -66,7 +66,7 @@ const server = http.createServer(async (req, res) => {
     // request; one from a timer long after it (a telemetry flush) does not.
     res.end('sent');
     fetchText(`${target}/json?soon`).catch(() => {});
-    setTimeout(() => fetchText(`${target}/json?late`).catch(() => {}), 2600);
+    setTimeout(() => fetchText(`${target}/json?late`).catch(() => {}), 3500);
     return;
   }
   if (path === '/html-twice') {

@@ -342,8 +342,17 @@ export function startedAt(e: Pick<Entry, 'ts' | 'durationMs' | 'state'>): number
   return e.state === 'pending' || e.durationMs == null ? e.ts : e.ts - e.durationMs;
 }
 
-const STEP_SLACK_MS = 2;
-const STEP_SLACK_MAX_MS = 10;
+/**
+ * How far a call may seem to overlap the next one and still count as having
+ * come first. Its recorded end trails the moment the app got the body (the
+ * capture reads its own copy, and the app may start its next call first): a
+ * few ms, growing to about a tenth of the call on a loaded machine. Calls
+ * that really run in parallel start together, within the first half of the
+ * shorter one, so the window stays within the second half of a short call.
+ */
+function stepSlack(durationMs: number): number {
+  return Math.max(2, durationMs * 0.25, Math.min(10, durationMs * 0.5));
+}
 
 /**
  * Sequential steps: runs of calls that overlap in time. Five calls in five
@@ -362,12 +371,11 @@ export function callSteps(calls: readonly Pick<Entry, 'ts' | 'durationMs' | 'sta
   let slack = 0;
   for (const s of spans) {
     // A call recorded as ending a moment after the next one starts still
-    // came first: the capture finishes reading a body a little after the
-    // app does, more so for a longer download.
+    // came first (see stepSlack).
     if (s.start >= end - slack) steps += 1;
     if (s.end > end) {
       end = s.end;
-      slack = Math.min(STEP_SLACK_MAX_MS, Math.max(STEP_SLACK_MS, (s.end - s.start) * 0.1));
+      slack = stepSlack(s.end - s.start);
     }
   }
   return steps;

@@ -146,6 +146,13 @@ describe('call trees', () => {
     // A call that ends a moment after the next one starts still came first.
     assert.equal(callSteps([call(0, 10), call(9, 10)]), 2);
     assert.equal(callSteps([call(0, 75), call(71, 9)]), 2);
+    // Seen on loaded machines: three calls in a row, each recorded as ending
+    // after the next one started.
+    assert.equal(callSteps([call(4, 148), call(144, 27), call(168, 6)]), 3);
+    assert.equal(callSteps([call(20, 1473), call(1309, 563), call(1810, 292)]), 3);
+    assert.equal(callSteps([call(1, 151), call(145, 31), call(167, 26)]), 3);
+    // Parallel calls start together, however long they take.
+    assert.equal(callSteps([call(0, 1000), call(5, 400), call(8, 990)]), 1);
     assert.equal(callSteps([call(0, 75), call(40, 9)]), 1);
     assert.equal(callSteps([{ ts: 0, state: 'pending' }, call(50, 1)]), 1);
   });

@@ -28,7 +28,17 @@
       frame.style.height = `${d.height}px`;
       frame.style.borderRadius = `${d.radius}px`;
     });
-    document.documentElement.appendChild(host);
+    const attach = () => document.documentElement.appendChild(host);
+    attach();
+    // React clears whatever it doesn't own from <html> when it renders the
+    // page from scratch (a root that failed to hydrate, a new root layout);
+    // put the bubble back. Capped, in case something keeps removing it.
+    let reattached = 0;
+    new MutationObserver(() => {
+      if (host.isConnected || reattached >= 20) return;
+      reattached++;
+      attach();
+    }).observe(document.documentElement, { childList: true });
   };
   // After load, when hydration of the page has had its turn.
   if (document.readyState === 'complete') setTimeout(mount, 0);

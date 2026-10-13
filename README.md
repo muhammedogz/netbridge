@@ -215,7 +215,7 @@ Captured traffic is exactly the evidence a coding agent (Claude Code, Cursor) ne
 An [agent skill](skills/netbridge/SKILL.md) teaches the agent the whole workflow: running the app through netbridge, isolating an action, reading entries, mocking a backend, spotting waterfalls and repeated calls. Install it with the [skills CLI](https://github.com/vercel-labs/skills), or copy `skills/netbridge/` into your agent's skills folder (`~/.claude/skills/` for Claude Code):
 
 ```bash
-npx skills add muhammedogz/netbridge
+npx skills add muhammedogz/netbridge --skill netbridge    # -g installs it for every project
 ```
 
 `netbridge mcp` is an [MCP](https://modelcontextprotocol.io) server for the agent to use directly:

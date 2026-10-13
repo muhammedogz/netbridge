@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { DEFAULT_BUFFER_LIMIT, MAX_ENTRIES, entrySize, mergeEvent } from '../../src/protocol';
+import type { MockRule } from '../../src/protocol';
 import type { CapturedRequest, WireEvent } from './types';
 
 /**
@@ -22,6 +23,8 @@ interface RequestsState {
   requests: CapturedRequest[];
   live: boolean;
   clearAll: () => Promise<void>;
+  /** The collector's mock rules, kept current over the same stream. */
+  mocks: MockRule[];
 }
 
 /** Connects to the collector's SSE stream and maintains the request table. */
@@ -31,6 +34,7 @@ export function useRequests(bufferLimit = DEFAULT_BUFFER_LIMIT): RequestsState {
   const frameRef = useRef<number | null>(null);
   const [live, setLive] = useState(false);
   const [requests, setRequests] = useState<CapturedRequest[]>([]);
+  const [mocks, setMocks] = useState<MockRule[]>([]);
 
   const publish = useCallback(() => {
     // Once per frame, not per event: sizing the table is O(rows).
@@ -58,7 +62,15 @@ export function useRequests(bufferLimit = DEFAULT_BUFFER_LIMIT): RequestsState {
 
   useEffect(() => {
     const es = new EventSource('/events');
-    es.onopen = () => setLive(true);
+    es.onopen = () => {
+      setLive(true);
+      // Changes while disconnected arrive with no event: fetch the list.
+      fetch('/api/mocks')
+        .then((res) => (res.ok ? res.json() : []))
+        .then(setMocks)
+        .catch(() => {});
+    };
+    es.addEventListener('mocks', (ev) => setMocks(JSON.parse((ev as MessageEvent).data)));
     es.onerror = () => setLive(false);
     es.addEventListener('snapshot', (ev) => {
       const list = JSON.parse((ev as MessageEvent).data) as (WireEvent & {
@@ -99,5 +111,5 @@ export function useRequests(bufferLimit = DEFAULT_BUFFER_LIMIT): RequestsState {
     schedulePublish();
   }, [schedulePublish]);
 
-  return { requests, live, clearAll };
+  return { requests, live, clearAll, mocks };
 }

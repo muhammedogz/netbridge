@@ -2,12 +2,25 @@ import { useEffect, useRef, useState } from 'react';
 import { REDACTED } from '../../../src/protocol';
 import type { CapturedRequest } from '../types';
 import { displayBody, downloadBlob, downloadBody, headersText, resendRequest } from '../lib';
+import type { Tree } from '../tree';
 import { CopyButton } from './CopyButton';
 import { CopyMenu } from './CopyMenu';
+import { MockEditor, draftFromEntry } from './Mocks';
 import { ResendDialog } from './ResendDialog';
 import { StatusBadge } from './StatusBadge';
+import { Waterfall } from './Waterfall';
 
 type Kind = 'response' | 'request';
+type Tab = Kind | 'calls';
+
+function pathOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return u.pathname + u.search;
+  } catch {
+    return url;
+  }
+}
 
 const WIDTH_KEY = 'netbridge-detail-width';
 
@@ -114,14 +127,24 @@ function BodySection({ r, kind }: { r: CapturedRequest; kind: Kind }) {
 
 export function DetailPane({
   r,
+  parent,
+  tree,
   onClose,
   onSelectEntry,
 }: {
   r: CapturedRequest | null;
+  /** The inbound request `r` was made for, when it is still in the buffer. */
+  parent: CapturedRequest | null;
+  tree: Tree;
   onClose: () => void;
   onSelectEntry: (id: string) => void;
 }) {
-  const [tab, setTab] = useState<Kind>('response');
+  const [tab, setTab] = useState<Tab>('response');
+  const [mocking, setMocking] = useState(false);
+  const inbound = r?.source === 'inbound';
+  // Inbound requests have no captured bodies: their calls are the point.
+  const shownTab: Tab = inbound ? (tab === 'request' ? 'request' : 'calls') : tab === 'calls' ? 'response' : tab;
+  const repeats = r ? tree.repeats.get(r.id) : undefined;
   const [width, setWidth] = useState(storedWidth);
   const [editing, setEditing] = useState(false);
   // Id of the entry with a resend in flight — survives selection changes so
@@ -137,6 +160,7 @@ export function DetailPane({
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset on a new entry id
   useEffect(() => {
     setEditing(false);
+    setMocking(false);
     setResendError(null);
   }, [r?.id]);
 
@@ -206,27 +230,62 @@ export function DetailPane({
                 replay of {r.replayOf}
               </button>
             )}
-            <CopyMenu r={r} />
-            <button
-              type="button"
-              className="iconbtn"
-              title={
-                're-issue this request unchanged' +
-                (asIsWarnings.length ? ` — ${asIsWarnings.join('; ')}` : '')
-              }
-              disabled={resendingId === r.id}
-              onClick={() => resendAsIs(r.id)}
-            >
-              {resendingId === r.id ? 'sending…' : 'resend'}
-            </button>
-            <button
-              type="button"
-              className="iconbtn"
-              title="edit method, url, headers or body, then resend"
-              onClick={() => setEditing(true)}
-            >
-              edit &amp; resend
-            </button>
+            {r.parentId && (
+              <button
+                type="button"
+                className="badge replay-link"
+                title="the inbound request this call was made for"
+                disabled={!parent}
+                onClick={() => onSelectEntry(r.parentId as string)}
+              >
+                for {parent ? `${parent.method} ${pathOf(parent.url)}` : 'an inbound request no longer in the list'}
+              </button>
+            )}
+            {repeats && (
+              <span className="badge dup" title="same method, url and body under the same inbound request">
+                ran {repeats}× for this request
+              </span>
+            )}
+            {r.mocked && (
+              <span className="badge mock" title="answered by a mock rule, not the real backend">
+                mocked by rule {r.mocked}
+              </span>
+            )}
+            {!inbound && (
+              <>
+                <CopyMenu r={r} />
+                <button
+                  type="button"
+                  className="iconbtn"
+                  title={
+                    're-issue this request unchanged' +
+                    (asIsWarnings.length ? ` — ${asIsWarnings.join('; ')}` : '')
+                  }
+                  disabled={resendingId === r.id}
+                  onClick={() => resendAsIs(r.id)}
+                >
+                  {resendingId === r.id ? 'sending…' : 'resend'}
+                </button>
+                <button
+                  type="button"
+                  className="iconbtn"
+                  title="edit method, url, headers or body, then resend"
+                  onClick={() => setEditing(true)}
+                >
+                  edit &amp; resend
+                </button>
+              </>
+            )}
+            {!inbound && r.source !== 'replay' && (
+              <button
+                type="button"
+                className="iconbtn"
+                title="answer this call with a canned response from now on, starting from the captured one"
+                onClick={() => setMocking(true)}
+              >
+                mock
+              </button>
+            )}
             <button
               type="button"
               className="iconbtn"
@@ -252,20 +311,41 @@ export function DetailPane({
             )}
           </div>
           <div className="tabbar" role="tablist">
-            {(['response', 'request'] as Kind[]).map((k) => (
+            {((inbound ? ['calls', 'request'] : ['response', 'request']) as Tab[]).map((k) => (
               <button
                 type="button"
                 key={k}
-                className={`tab ${tab === k ? 'active' : ''}`}
+                className={`tab ${shownTab === k ? 'active' : ''}`}
                 role="tab"
-                aria-selected={tab === k}
+                aria-selected={shownTab === k}
                 onClick={() => setTab(k)}
               >
-                {k === 'response' ? 'Response' : 'Request'}
+                {k === 'response' ? 'Response' : k === 'calls' ? 'Calls' : 'Request'}
               </button>
             ))}
           </div>
-          <BodySection r={r} kind={tab} />
+          {shownTab === 'calls' ? (
+            <div className="section">
+              <Waterfall parent={r} tree={tree} onSelect={onSelectEntry} />
+              <div className="section">
+                <div className="sec-head">
+                  <h3>response headers</h3>
+                </div>
+                <HeadersGrid headers={r.resHeaders} />
+              </div>
+            </div>
+          ) : inbound ? (
+            <div className="section">
+              <div className="sec-head">
+                <h3>request headers</h3>
+                <CopyButton text={() => headersText(r.reqHeaders)} />
+              </div>
+              <HeadersGrid headers={r.reqHeaders} />
+            </div>
+          ) : (
+            <BodySection r={r} kind={shownTab as Kind} />
+          )}
+          {mocking && <MockEditor initial={draftFromEntry(r)} onClose={() => setMocking(false)} />}
           {editing && (
             <ResendDialog
               r={r}

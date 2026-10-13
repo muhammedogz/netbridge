@@ -1,6 +1,6 @@
-import { useLayoutEffect, useRef } from 'react';
-import type { CapturedRequest } from '../types';
+import { useLayoutEffect, useRef, useState } from 'react';
 import { fmtSize } from '../lib';
+import type { Row, Tree } from '../tree';
 import { StatusBadge } from './StatusBadge';
 
 // An id segment (`/users/42`, `/orders/<uuid>`) says little on its own.
@@ -8,7 +8,7 @@ const ID_SEGMENT = /^(\d+|[0-9a-f]{8}-[0-9a-f-]{27}|[0-9a-f]{24,})$/i;
 
 // Name first, like the DevTools Network tab: the last path segment is what
 // tells requests apart, so a narrow column truncates the host, not the name.
-function UrlCell({ url }: { url: string }) {
+export function UrlCell({ url }: { url: string }) {
   try {
     const u = new URL(url);
     const path = u.pathname.length > 1 && u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
@@ -26,25 +26,75 @@ function UrlCell({ url }: { url: string }) {
   }
 }
 
+/** Row height in px; every row is one line (see `tbody tr` in styles.css). */
+const ROW_HEIGHT = 24;
+/** Rows rendered beyond the viewport on each side, so fast scrolls don't flash. */
+const OVERSCAN = 20;
+
+/** Stands in for the rows outside the rendered window. */
+function Spacer({ height }: { height: number }) {
+  return (
+    <tr className="spacer" style={{ height }} aria-hidden>
+      <td colSpan={7} />
+    </tr>
+  );
+}
+
 interface Props {
-  requests: CapturedRequest[];
+  rows: Row[];
   total: number;
+  tree: Tree;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  collapsed: ReadonlySet<string>;
+  onToggleCollapsed: (id: string) => void;
   /** Detail pane is open: keep only the columns that identify a request. */
   compact: boolean;
 }
 
-export function RequestTable({ requests, total, selectedId, onSelect, compact }: Props) {
+/**
+ * The request list. Only the rows in view (plus OVERSCAN) are in the DOM, so
+ * a full buffer of thousands of requests scrolls and updates like a short one.
+ */
+export function RequestTable({ rows, total, tree, selectedId, onSelect, collapsed, onToggleCollapsed, compact }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
+  const [view, setView] = useState({ top: 0, height: 800 });
+
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const update = () => setView({ top: el.scrollTop, height: el.clientHeight });
+    update();
+    const ro = new ResizeObserver(update);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   // Sticky auto-scroll: follow new rows only when the user is near the bottom.
   // biome-ignore lint/correctness/useExhaustiveDependencies: re-run whenever the rows change
   useLayoutEffect(() => {
     const el = listRef.current;
     if (el && stickRef.current) el.scrollTop = el.scrollHeight;
-  }, [requests]);
+  }, [rows]);
+
+  // A selection made elsewhere (a link in the detail pane) scrolls into view.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only on a new selection
+  useLayoutEffect(() => {
+    const el = listRef.current;
+    if (!el || !selectedId) return;
+    const idx = rows.findIndex((row) => row.r.id === selectedId);
+    if (idx < 0) return;
+    const y = idx * ROW_HEIGHT;
+    // The sticky header covers the first row's worth of the viewport.
+    if (y < el.scrollTop + ROW_HEIGHT || y > el.scrollTop + el.clientHeight - 2 * ROW_HEIGHT) {
+      stickRef.current = false;
+      el.scrollTop = Math.max(0, y - el.clientHeight / 3);
+    }
+  }, [selectedId]);
+
+  const start = Math.max(0, Math.floor(view.top / ROW_HEIGHT) - OVERSCAN);
+  const end = Math.min(rows.length, Math.ceil((view.top + view.height) / ROW_HEIGHT) + OVERSCAN);
 
   return (
     <div
@@ -52,7 +102,9 @@ export function RequestTable({ requests, total, selectedId, onSelect, compact }:
       ref={listRef}
       onScroll={() => {
         const el = listRef.current;
-        if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+        if (!el) return;
+        stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
+        setView({ top: el.scrollTop, height: el.clientHeight });
       }}
     >
       <table className={compact ? 'compact' : undefined}>
@@ -68,28 +120,58 @@ export function RequestTable({ requests, total, selectedId, onSelect, compact }:
           </tr>
         </thead>
         <tbody>
-          {requests.map((r) => (
-            <tr
-              key={r.id}
-              className={r.id === selectedId ? 'selected' : ''}
-              onClick={() => onSelect(r.id)}
-            >
-              <td className="seq opt">{r.seq}</td>
-              <td className={`method opt ${r.method}`}>{r.method}</td>
-              <td className="url" title={r.url}>
-                <UrlCell url={r.url} />
-              </td>
-              <td>
-                <StatusBadge r={r} />
-              </td>
-              <td className="opt">{r.durationMs != null ? `${r.durationMs} ms` : ''}</td>
-              <td className="opt">{fmtSize(r.resBody, r.resBodyEncoding)}</td>
-              <td className="src opt">
-                {r.source || ''}
-                {r.pid ? <span title="pid"> #{r.pid}</span> : null}
-              </td>
-            </tr>
-          ))}
+          {start > 0 && <Spacer height={start * ROW_HEIGHT} />}
+          {rows.slice(start, end).map(({ r, depth }) => {
+            const inbound = r.source === 'inbound';
+            const calls = inbound ? tree.children.get(r.id) : undefined;
+            const repeats = tree.repeats.get(r.id);
+            const cls = [r.id === selectedId ? 'selected' : '', inbound ? 'inbound' : '', depth ? 'child' : '']
+              .filter(Boolean)
+              .join(' ');
+            return (
+              <tr key={r.id} className={cls} onClick={() => onSelect(r.id)}>
+                <td className="seq opt">{r.seq}</td>
+                <td className={`method opt ${r.method}`}>{r.method}</td>
+                <td className="url" title={r.url}>
+                  {inbound && (
+                    <button
+                      type="button"
+                      className="caret"
+                      aria-label={collapsed.has(r.id) ? 'show calls' : 'hide calls'}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onToggleCollapsed(r.id);
+                      }}
+                    >
+                      {collapsed.has(r.id) ? '▸' : '▾'}
+                    </button>
+                  )}
+                  {r.mocked && <span className="tag mock">mock</span>}
+                  {repeats && (
+                    <span className="tag dup" title={`the same call ran ${repeats} times for this request`}>
+                      ×{repeats}
+                    </span>
+                  )}
+                  {calls && (
+                    <span className="tag calls" title="outbound calls made while handling this request">
+                      {calls.length} call{calls.length === 1 ? '' : 's'}
+                    </span>
+                  )}
+                  <UrlCell url={r.url} />
+                </td>
+                <td>
+                  <StatusBadge r={r} />
+                </td>
+                <td className="opt">{r.durationMs != null ? `${r.durationMs} ms` : ''}</td>
+                <td className="opt">{fmtSize(r.resBody, r.resBodyEncoding)}</td>
+                <td className="src opt">
+                  {r.source || ''}
+                  {r.pid ? <span title="pid"> #{r.pid}</span> : null}
+                </td>
+              </tr>
+            );
+          })}
+          {end < rows.length && <Spacer height={(rows.length - end) * ROW_HEIGHT} />}
         </tbody>
       </table>
       {total === 0 && (
@@ -99,7 +181,7 @@ export function RequestTable({ requests, total, selectedId, onSelect, compact }:
           traffic from fetch, ky, axios, got &amp; co. appears here live
         </div>
       )}
-      {total > 0 && requests.length === 0 && (
+      {total > 0 && rows.length === 0 && (
         <div id="empty">
           no requests match the filter
           <br />

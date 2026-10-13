@@ -29,6 +29,8 @@ export async function loadViewConfig(): Promise<ViewConfig> {
     return {
       exclude: Array.isArray(c.exclude) ? c.exclude.filter((p: unknown) => typeof p === 'string') : [],
       startedAt: Number(c.startedAt) || 0,
+      bufferLimit: Number(c.bufferLimit) || undefined,
+      version: typeof c.version === 'string' ? c.version : undefined,
     };
   } catch {
     return { exclude: [], startedAt: 0 };

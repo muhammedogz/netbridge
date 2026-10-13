@@ -29,6 +29,7 @@ body { background: var(--bg); color: var(--fg); font-family: var(--mono); font-s
 header { display: flex; align-items: center; gap: 12px; padding: 8px 12px; background: var(--bg2); border-bottom: 1px solid var(--border); flex-shrink: 0; }
 header h1 { font-size: 13px; font-weight: 600; color: var(--accent); }
 header h1 span { color: var(--fg-dim); font-weight: 400; }
+header h1 .version { font-size: 11px; border: 1px solid var(--border); border-radius: 8px; padding: 0 6px; vertical-align: 1px; }
 #live { width: 8px; height: 8px; border-radius: 50%; background: var(--red); flex-shrink: 0; }
 #live.on { background: var(--green); box-shadow: 0 0 6px var(--green); }
 #filter { flex: 1; max-width: 360px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 9px; font-family: var(--mono); font-size: 12px; outline: none; }
@@ -37,6 +38,7 @@ header h1 span { color: var(--fg-dim); font-weight: 400; }
 button { background: var(--bg3); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 5px 12px; font-family: var(--mono); font-size: 12px; cursor: pointer; }
 button:hover { border-color: var(--accent); }
 button.flash { border-color: var(--green); color: var(--green); }
+header button.on { border-color: var(--accent); color: var(--accent); }
 button.theme { display: inline-flex; align-items: center; padding: 5px 8px; }
 button.theme svg { width: 14px; height: 14px; display: block; }
 
@@ -65,10 +67,23 @@ main { flex: 1; display: flex; min-height: 0; }
 #list { flex: 1; overflow-y: auto; min-width: 0; }
 table { width: 100%; border-collapse: collapse; }
 thead th { position: sticky; top: 0; background: var(--bg2); text-align: left; padding: 6px 10px; color: var(--fg-dim); font-weight: 500; border-bottom: 1px solid var(--border); white-space: nowrap; z-index: 1; }
-tbody tr { border-bottom: 1px solid var(--row-border); cursor: pointer; }
+/* Every row is exactly 24px (ROW_HEIGHT in RequestTable.tsx): the list only
+   renders the rows in view and computes the rest from that height. */
+tbody tr { height: 24px; cursor: pointer; }
 tbody tr:hover { background: var(--bg3); }
 tbody tr.selected { background: var(--selected); }
-td { padding: 5px 10px; white-space: nowrap; }
+td { padding: 0 10px; white-space: nowrap; box-shadow: inset 0 -1px 0 var(--row-border); }
+tbody tr.spacer { cursor: default; background: none; }
+tbody tr.spacer td { padding: 0; box-shadow: none; }
+tbody tr.inbound td { background: color-mix(in srgb, var(--accent) 7%, transparent); }
+tbody tr.inbound td.url .name { font-weight: 600; }
+tbody tr.child td.url { padding-left: 28px; }
+.caret { background: none; border: 0; padding: 0 4px 0 0; color: var(--fg-dim); font-size: 11px; cursor: pointer; }
+.caret:hover { color: var(--accent); }
+.tag { display: inline-block; font-size: 10px; line-height: 14px; padding: 0 5px; border-radius: 7px; margin-right: 6px; border: 1px solid currentColor; vertical-align: 1px; }
+.tag.mock { color: var(--purple); }
+.tag.dup { color: var(--yellow); }
+.tag.calls { color: var(--fg-dim); }
 td.url { max-width: 0; width: 60%; overflow: hidden; text-overflow: ellipsis; color: var(--fg); }
 td.url .host { color: var(--fg-dim); margin-left: 8px; }
 table.compact .opt { display: none; }
@@ -127,6 +142,37 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .badge { display: inline-block; padding: 1px 7px; border-radius: 10px; font-size: 11px; background: var(--bg3); border: 1px solid var(--border); color: var(--fg-dim); margin-left: 6px; }
 .badge.replay-link { cursor: pointer; color: var(--purple); }
 .badge.replay-link:hover { border-color: var(--purple); }
+.badge.replay-link:disabled { cursor: default; color: var(--fg-dim); border-color: var(--border); }
+.badge.dup { color: var(--yellow); border-color: var(--yellow); }
+.badge.mock { color: var(--purple); border-color: var(--purple); }
+
+/* call waterfall (detail pane of an inbound request, and the overlay) */
+.wf-summary { display: flex; flex-wrap: wrap; gap: 6px 14px; color: var(--fg-dim); margin-bottom: 8px; }
+.wf-summary .warn { color: var(--yellow); }
+.wf-summary .bad { color: var(--red); }
+.wf-rows { display: flex; flex-direction: column; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); overflow: hidden; }
+.wf-row { display: grid; grid-template-columns: minmax(0, 1.2fr) 34px minmax(80px, 1fr) 58px; align-items: center; gap: 8px; padding: 3px 8px; background: none; border: 0; border-bottom: 1px solid var(--row-border); border-radius: 0; text-align: left; width: 100%; }
+.wf-row:last-child { border-bottom: 0; }
+.wf-row:hover { background: var(--bg3); }
+.wf-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.wf-name .host { color: var(--fg-dim); margin-left: 6px; }
+.wf-status { text-align: right; }
+.wf-ms { text-align: right; color: var(--fg-dim); }
+.wf-track { position: relative; height: 10px; background: var(--bg3); border-radius: 3px; }
+.wf-bar { position: absolute; top: 0; bottom: 0; border-radius: 3px; background: var(--fg-dim); }
+.wf-bar.s2 { background: var(--green); } .wf-bar.s3 { background: var(--purple); }
+.wf-bar.s4 { background: var(--yellow); } .wf-bar.s5 { background: var(--red); }
+.wf-bar.pending { background: var(--accent); animation: pulse 1.2s infinite; }
+
+/* mock rules */
+.mock-list { display: flex; flex-direction: column; gap: 4px; }
+.mock-item { display: grid; grid-template-columns: auto auto 52px minmax(0, 1fr) auto auto auto; align-items: center; gap: 8px; padding: 5px 8px; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; }
+.mock-item.off { opacity: 0.55; }
+.mock-id { color: var(--fg-dim); }
+.mock-url { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mock-what { color: var(--fg-dim); white-space: nowrap; }
+.mock-modes { flex-wrap: wrap; gap: 14px; align-items: center; }
+.mock-num { width: 70px; background: var(--bg); color: var(--fg); border: 1px solid var(--border); border-radius: 6px; padding: 3px 7px; font-family: var(--mono); font-size: 12px; outline: none; }
 #empty { padding: 48px; text-align: center; color: var(--fg-dim); line-height: 2; }
 
 /* edit & resend modal */

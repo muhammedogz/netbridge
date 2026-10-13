@@ -9,5 +9,12 @@ export default defineConfig({
   build: {
     outDir: path.resolve(__dirname, '..', 'ui'),
     emptyOutDir: true,
+    rollupOptions: {
+      // The overlay (--overlay) is its own small page, embedded in the app.
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        overlay: path.resolve(__dirname, 'overlay.html'),
+      },
+    },
   },
 });

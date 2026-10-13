@@ -434,15 +434,23 @@ export function agentApiInstructions(origin: string): string {
   return `netbridge — a server-side HTTP inspector — is running at ${origin}, live-capturing this app's outbound HTTP traffic: method, url, status, headers, full request/response bodies, timing and errors.
 
 Read the capture:
-- GET  ${origin}/api/requests   every captured request, as a JSON array
-- GET  ${origin}/api/health     collector info: { app: "netbridge", version, requests }
+- GET  ${origin}/api/requests   every captured request, as a JSON array. Optional query: parent=<inbound id> (calls made while handling that inbound request), source=<fetch|http|undici|replay|inbound>, since=<epoch ms>, limit=<newest N>, summary=1 (no headers or bodies)
+- GET  ${origin}/api/requests/<id>   one entry
+- GET  ${origin}/api/health     collector info: { app: "netbridge", version, requests, ports }
 - GET  ${origin}/events         SSE stream (snapshot event, then live capture events)
 - POST ${origin}/api/clear      reset the capture buffer
 - POST ${origin}/api/resend     re-issue a captured request; JSON body {"id"} resends as-is, {"id", "method"?, "url"?, "headers"?, "body"?} resends with edits ("body": null sends no body); returns the settled replay entry (source "replay", replayOf links the original). Requires the header "content-type: application/json" (e.g. curl -H). Redacted header values are stripped before sending.
 
+Mock the app's backends (no app change, takes effect immediately):
+- GET    ${origin}/api/mocks         the rules
+- POST   ${origin}/api/mocks         add a rule, or replace the one with the same id: {"url": "<substring or * pattern>", "method"?, "response"?: {"status", "headers"?, "body"?}, "delayMs"?, "fail"?: "<message>", "enabled"?}. content-type: application/json
+- DELETE ${origin}/api/mocks/<id>    remove a rule
+
 Example: \`curl -s ${origin}/api/requests\` shows exactly what the server sent and received. Use it to verify outbound calls, inspect payloads, and diagnose failures (entries with state "error", or status >= 400).
 
-Reading entries: bodies over the capture limit carry reqBodyTruncated/resBodyTruncated: true; binary bodies are base64 (reqBodyEncoding/resBodyEncoding: "base64"); sensitive header values (authorization, cookie, …) are redacted by default.`;
+Reading entries: entries with source "inbound" are requests the app's server received; the calls it made while handling one carry parentId = that entry's id. mocked names the mock rule that answered. Bodies over the capture limit carry reqBodyTruncated/resBodyTruncated: true; binary bodies are base64 (reqBodyEncoding/resBodyEncoding: "base64"); sensitive header values (authorization, cookie, …) are redacted by default.
+
+An MCP server with the same abilities: \`claude mcp add netbridge -- npx -y netbridge mcp\`.`;
 }
 
 // ---------------------------------------------------------------------------

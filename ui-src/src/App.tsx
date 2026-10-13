@@ -7,6 +7,8 @@ import { DetailPane } from './components/DetailPane';
 import { ExportMenu, type ExportKind } from './components/ExportMenu';
 import { FilterBar } from './components/FilterBar';
 import { CopyButton } from './components/CopyButton';
+import { MocksDialog } from './components/Mocks';
+import { buildTree, toRows } from './tree';
 import { agentApiInstructions, buildHar, downloadBlob } from './lib';
 import {
   matchesFilter,
@@ -25,6 +27,24 @@ const FILTER_HELP = [
   'e.g. -host:localhost:4318 method:post status:5xx',
 ].join('\n');
 
+const GROUP_KEY = 'netbridge-group';
+
+function idFromHash(): string | null {
+  try {
+    return decodeURIComponent(location.hash.slice(1)) || null;
+  } catch {
+    return null; // a malformed escape such as `#%`
+  }
+}
+
+function storedGroup(): boolean {
+  try {
+    return localStorage.getItem(GROUP_KEY) !== '0';
+  } catch {
+    return true;
+  }
+}
+
 function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
   const next = new Set(set);
   if (next.has(value)) next.delete(value);
@@ -33,14 +53,18 @@ function toggled<T>(set: ReadonlySet<T>, value: T): Set<T> {
 }
 
 export function App({ config }: { config: ViewConfig }) {
-  const { requests, live, clearAll } = useRequests(config.bufferLimit);
+  const { requests, live, clearAll, mocks } = useRequests(config.bufferLimit);
+  const [grouped, setGrouped] = useState(storedGroup);
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const [showMocks, setShowMocks] = useState(false);
   const [filterText, setFilterText] = useFilterText(config);
   const [methods, setMethods] = useState<ReadonlySet<string>>(new Set());
   const [statuses, setStatuses] = useState<ReadonlySet<StatusClass>>(new Set());
   const [sources, setSources] = useState<ReadonlySet<string>>(new Set());
   const [durMin, setDurMin] = useState('');
   const [durMax, setDurMax] = useState('');
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // `#<id>` selects an entry: the overlay's "open in netbridge" links here.
+  const [selectedId, setSelectedId] = useState<string | null>(() => idFromHash());
   // Defer the expensive scan (bodies can total hundreds of MB) so keystrokes
   // render immediately and the row list catches up a frame later.
   const deferredFilter = useDeferredValue(filterText);
@@ -60,6 +84,15 @@ export function App({ config }: { config: ViewConfig }) {
     return base.filter((r) => matchesFilter(r, terms));
   }, [requests, terms, methods, statuses, sources, minMs, maxMs, anyStructured]);
   const hidden = requests.length - filtered.length;
+  const tree = useMemo(() => buildTree(requests), [requests]);
+  const rows = useMemo(() => toRows(filtered, tree, grouped, collapsed), [filtered, tree, grouped, collapsed]);
+  const enabledMocks = mocks.filter((m) => m.enabled).length;
+
+  useEffect(() => {
+    const onHash = () => setSelectedId(idFromHash());
+    window.addEventListener('hashchange', onHash);
+    return () => window.removeEventListener('hashchange', onHash);
+  }, []);
 
   // Escape: leave the filter box first, then close the detail pane. Open
   // dropdown menus own the key themselves and must not also close the pane.
@@ -78,7 +111,9 @@ export function App({ config }: { config: ViewConfig }) {
     return () => document.removeEventListener('keydown', onKey);
   }, []);
 
-  const selected = selectedId ? (requests.find((r) => r.id === selectedId) ?? null) : null;
+  const byId = useMemo(() => new Map(requests.map((r) => [r.id, r])), [requests]);
+  const selected = selectedId ? (byId.get(selectedId) ?? null) : null;
+  const parent = selected?.parentId ? (byId.get(selected.parentId) ?? null) : null;
 
   const onExport = async (kind: ExportKind) => {
     const res = await fetch('/api/requests');
@@ -108,7 +143,13 @@ export function App({ config }: { config: ViewConfig }) {
       <header>
         <div id="live" className={live ? 'on' : ''} title="live connection" />
         <h1>
-          netbridge <span>— server-side network tab</span>
+          netbridge{' '}
+          {config.version && (
+            <span className="version" title="netbridge version">
+              v{config.version}
+            </span>
+          )}{' '}
+          <span>— server-side network tab</span>
         </h1>
         <input
           id="filter"
@@ -127,6 +168,32 @@ export function App({ config }: { config: ViewConfig }) {
           title="copy instructions that point an AI agent (or script) at the live capture API"
           text={() => agentApiInstructions(window.location.origin)}
         />
+        <button
+          type="button"
+          className={grouped ? 'on' : ''}
+          aria-pressed={grouped}
+          title="show each call under the inbound request (page render, API route) that made it"
+          onClick={() => {
+            setGrouped((g) => {
+              try {
+                localStorage.setItem(GROUP_KEY, g ? '0' : '1');
+              } catch {
+                /* ignore */
+              }
+              return !g;
+            });
+          }}
+        >
+          group
+        </button>
+        <button
+          type="button"
+          className={enabledMocks ? 'on' : ''}
+          title="mock rules: answer, delay or fail the app's outbound calls"
+          onClick={() => setShowMocks(true)}
+        >
+          mocks{enabledMocks ? ` · ${enabledMocks}` : ''}
+        </button>
         <ExportMenu onExport={onExport} />
         <button
           type="button"
@@ -161,14 +228,24 @@ export function App({ config }: { config: ViewConfig }) {
       />
       <main>
         <RequestTable
-          requests={filtered}
+          rows={rows}
           total={requests.length}
+          tree={tree}
           selectedId={selectedId}
           onSelect={(id) => setSelectedId(id === selectedId ? null : id)}
+          collapsed={collapsed}
+          onToggleCollapsed={(id) => setCollapsed((s) => toggled(s, id))}
           compact={selected !== null}
         />
-        <DetailPane r={selected} onClose={() => setSelectedId(null)} onSelectEntry={setSelectedId} />
+        <DetailPane
+          r={selected}
+          parent={parent}
+          tree={tree}
+          onClose={() => setSelectedId(null)}
+          onSelectEntry={setSelectedId}
+        />
       </main>
+      {showMocks && <MocksDialog rules={mocks} onClose={() => setShowMocks(false)} />}
     </>
   );
 }

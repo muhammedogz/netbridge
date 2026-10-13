@@ -12,7 +12,7 @@ npx netbridge -- next dev
 ```
 
 ```
-  netbridge UI  →  http://localhost:4499
+  netbridge v0.6.0  UI  →  http://localhost:4499
 ```
 
 Open the URL and you get a live request list with headers, full request and response bodies (decompressed, JSON pretty-printed), timing, and the pid of the process that sent each request. Native `fetch` and fetch-based clients like ky go through the fetch wrapper; axios, got, superagent and friends go through the http/https wrapper. Bodies are captured either way.
@@ -43,19 +43,76 @@ netbridge -- node server.js
 netbridge -- npm run start:dev      # NestJS, Express, anything
 netbridge --port 5000 -- next dev   # custom UI port
 netbridge --exclude localhost:4318 -- pnpm dev   # hide OpenTelemetry exports in the UI
+netbridge --mocks api.mocks.json -- pnpm dev     # load and save mock rules
+netbridge --overlay -- next dev     # a netbridge bubble on your app's pages
 ```
 
 ## The UI
 
 The request table shows method, url, status, timing, size, and which process made the call. It auto-scrolls with new traffic, but only while you're at the bottom.
 
-To narrow it down, the filter box matches url, method, status, headers, and request/response bodies; space-separated terms must all match, a leading `-` hides what a term matches, and keyed terms like `host:` target one attribute (see [Filtering](#filtering)). Below it, chips toggle methods, status classes (`2xx` `3xx` `4xx` `5xx` `error` `pending`), and source (`fetch`/`http`/`replay`). Chips in the same group are ORed, everything else is ANDed. Clicking `4xx` and `5xx` leaves only the failures. The `time` min/max boxes narrow by duration: `500` or `500ms` and `1s` or `1.5s` all work, and an empty box leaves that side open, so min `100ms` + max `500ms` gives a range, max `1s` alone shows everything up to a second, and min `500ms` alone shows only the slow ones.
+To narrow it down, the filter box matches url, method, status, headers, and request/response bodies; space-separated terms must all match, a leading `-` hides what a term matches, and keyed terms like `host:` target one attribute (see [Filtering](#filtering)). Below it, chips toggle methods, status classes (`2xx` `3xx` `4xx` `5xx` `error` `pending`), and source (`fetch`/`http`/`undici`/`inbound`/`replay`). Chips in the same group are ORed, everything else is ANDed. Clicking `4xx` and `5xx` leaves only the failures. The `time` min/max boxes narrow by duration: `500` or `500ms` and `1s` or `1.5s` all work, and an empty box leaves that side open, so min `100ms` + max `500ms` gives a range, max `1s` alone shows everything up to a second, and min `500ms` alone shows only the slow ones.
 
 Clicking a row opens the detail pane: headers, pretty-printed bodies, copy and download per body. `Esc` closes it. If you're typing in the filter box, the first `Esc` just leaves the box.
 
 "copy request" copies the selected request as Markdown, JSON, cURL, a `fetch` call, Python `requests`, or an AI prompt (more on that below). "export" downloads the session as raw JSON or HAR 1.2, which loads in Chrome DevTools, Insomnia, and any HAR viewer.
 
-Dark and light themes, no external assets, everything served from `127.0.0.1`.
+Dark and light themes, no external assets, everything served from `127.0.0.1`. The list renders only the rows in view, so a full buffer of thousands of requests scrolls like a short one.
+
+## Calls per request
+
+Each call is tied to the request your server was handling when it made it: the page render, the API route, the server action. With `group` on (the default), the list shows that inbound request as a header row, with its calls indented below it:
+
+```
+▾ 3 calls  dashboard   localhost:3000/        200   840 ms   inbound
+     ×2    user        api.example.com/v1/    200   120 ms   fetch
+     ×2    user        api.example.com/v1/    200   118 ms   fetch
+           orders      api.example.com/v1/    200   300 ms   http
+```
+
+Clicking the inbound row opens its **Calls** tab, a waterfall of what it called on a shared time axis, with:
+
+- **sequential steps**: runs of calls that overlap in time. Five calls in five steps waited on each other, which is the classic Server Component waterfall; five calls in one step ran in parallel.
+- **repeated calls** (`×2`): the same method, url and body more than once for one request, the usual sign of a missing `cache()` or dedupe. The body counts, so different GraphQL queries to one endpoint aren't flagged.
+
+A call's detail pane links back to its request ("for GET /dashboard"). The `▸` caret folds a request's calls away.
+
+This needs no setup: the preload follows each request handler through `await`s, timers and promise chains with `AsyncLocalStorage`, the same mechanism Next.js uses for `headers()` and `cookies()`. An inbound request is recorded only once it makes an outbound call, so static files and HMR pings stay out of the list. Calls made outside any request (startup, cron jobs) have no parent and show on their own.
+
+## Mocking backends
+
+Mock rules answer the app's outbound calls without the backend: a canned response, a delay, or a network failure. Useful when the backend isn't there yet, is down, or you need its error path. The app needs no change, and rules take effect immediately, also in a dev server that is already running.
+
+The fastest way in: select a captured request and press **mock**. The editor opens with that request's url and its captured response, ready to edit. **mocks** in the header lists the rules, with a switch to turn each one off. A rule:
+
+| Field | Meaning |
+|---|---|
+| `url` | a url substring, or a pattern where `*` matches anything (`https://api.test/users/*/orders`) |
+| `method` | empty for any |
+| `response` | `{ "status", "headers", "body" }`: answer with this. A JSON value as `body` is sent as JSON |
+| `fail` | fail like a refused connection, with this message |
+| `delayMs` | wait first. Alone it delays the real backend's answer: a slow-network switch |
+| `enabled` | `false` keeps the rule around, inactive |
+
+The first enabled rule that matches wins. Mocked calls stay in the list, tagged `mock`, so you see what the app actually got.
+
+`--mocks <file>` loads rules from a JSON array and saves every change back to it, so a set of mocks can live in the repo:
+
+```json
+[
+  { "url": "/v1/users/me", "response": { "status": 200, "body": { "id": 1, "name": "Ada" } } },
+  { "method": "POST", "url": "/v1/orders", "fail": "orders service down" },
+  { "url": "api.example.com", "delayMs": 1500 }
+]
+```
+
+Mocks apply to `fetch` and the `http`/`https` modules (axios, got, ky, node-fetch, …). Calls through undici's own API are captured but not mocked.
+
+## The bubble (`--overlay`)
+
+`netbridge --overlay -- next dev` puts a small bubble in the corner of your app's pages, like the Next.js dev indicator: how many server calls the page made, and whether any failed or repeated. Click it for the waterfall of each request since the page loaded (the page itself, then the API routes and server actions it calls), and "open in netbridge" for the full detail.
+
+It is opt-in because it changes your HTML: for page navigations, netbridge asks your server for an uncompressed response and appends one `<script>` tag. The bubble itself is an iframe served by the collector, so captured data never enters the page's JavaScript. Pages with a `Content-Security-Policy` header are left alone.
 
 ## Filtering
 
@@ -70,7 +127,7 @@ The filter box takes space-separated terms that must all match, in the style of 
 | `path:/v1/` | contain it in the path or query string |
 | `method:post` | use that method |
 | `status:404` `status:4xx` | got that status (`x` is any digit). `status:error` and `status:pending` match failed and in-flight requests |
-| `source:http` | went through that wrapper (`fetch` or `http`) |
+| `source:http` | came from that source: `fetch`, `http`, `undici`, `inbound` (requests your server received) or `replay` |
 
 A term with an unknown key is plain text, so `localhost:4318` needs no escaping. While a filter is active the counter next to the box reads `shown/total`; hover it to see how many requests are hidden.
 
@@ -114,9 +171,12 @@ netbridge -- next dev
         │
         └─ the preload runs in EVERY Node process your tool spawns
            (Next.js workers included; env vars propagate where CLI flags can't)
-             ├─ wraps globalThis.fetch     → fetch, ky, …
-             └─ wraps http/https.request   → axios, got, …
-                 └─ streams events to the collector (fire-and-forget)
+             ├─ wraps globalThis.fetch       → fetch, ky, …
+             ├─ wraps http/https.request     → axios, got, …
+             ├─ listens on undici's channels → undici.request, Pool, …
+             ├─ tracks the app's own server  → which request made each call
+             ├─ applies mock rules (kept in sync with the collector)
+             └─ streams events to the collector (fire-and-forget)
 ```
 
 - The preload runs before your framework boots, so even framework-patched `fetch` (Next.js caching) flows through the capture layer.
@@ -142,15 +202,23 @@ netbridge -- next dev
 | `NETBRIDGE_QUIET` | `0` | suppress the per-process capture banner |
 | `NETBRIDGE_ALLOWED_HOSTS` | | extra host names the UI may be opened under, comma-separated, for remote dev proxies (Codespaces, Gitpod). Loopback names always work |
 
-CLI flags: `--port <n>` to pick the UI port (auto-increments if busy), `--exclude <pattern>` (repeatable) to open the UI with matching requests hidden (see [Filtering](#filtering)).
+CLI flags: `--port <n>` to pick the UI port (auto-increments if busy), `--exclude <pattern>` (repeatable) to open the UI with matching requests hidden (see [Filtering](#filtering)), `--mocks <file>` to load and save mock rules (see [Mocking backends](#mocking-backends)), `--overlay` for the in-page bubble (see [The bubble](#the-bubble---overlay)). `netbridge --version` prints the installed version; the UI header and the start banner show it too.
 
 ## DevTools extension (optional)
 
-Prefer living inside DevTools? `extension/` ships a Chrome DevTools panel, like React DevTools, that auto-discovers your running collector and shows the netbridge UI next to the browser's Network tab. Client and server traffic in one window. See [extension/README.md](extension/README.md) for install steps.
+Prefer living inside DevTools? `extension/` ships a Chrome DevTools panel, like React DevTools, that auto-discovers your running collector and shows the netbridge UI next to the browser's Network tab. Client and server traffic in one window. With several apps running through netbridge, it shows the one serving the page you're inspecting. See [extension/README.md](extension/README.md) for install steps.
 
 ## For AI agents
 
-Captured traffic is exactly the evidence a coding agent (Claude Code, Cursor) needs when it debugs your server, so netbridge hands it over in two ways.
+Captured traffic is exactly the evidence a coding agent (Claude Code, Cursor) needs when it debugs your server, so netbridge hands it over in three ways.
+
+`netbridge mcp` is an [MCP](https://modelcontextprotocol.io) server for the agent to use directly:
+
+```bash
+claude mcp add netbridge -- npx -y netbridge mcp
+```
+
+Its tools: `list_requests` (filter by url, method, status, source, or the inbound request that made the calls), `get_request` (headers and decoded bodies), `get_call_tree` (one page render's calls with timing, repeats and sequential steps), `resend_request`, `clear_requests`, and `list_mocks` / `set_mock` / `delete_mock`, so the agent can stub a backend while it works. It finds the running collector on ports 4499–4510; set `NETBRIDGE_PORT` in its environment to pin one.
 
 The `api` button in the header copies a short briefing to paste into the agent's chat: the endpoint list below, a curl example, and how to read entries (truncation flags, base64 bodies, redacted headers). After that the agent can watch your traffic on its own.
 
@@ -160,11 +228,15 @@ The endpoints, all on `127.0.0.1`:
 
 | Endpoint | Returns |
 |---|---|
-| `GET /api/requests` | every captured request as a JSON array: headers, full bodies, timing, errors |
-| `GET /api/health` | `{ app: "netbridge", version, requests }`, lets scripts find a running collector |
+| `GET /api/requests` | every captured request as a JSON array: headers, full bodies, timing, errors. Optional query: `parent=<id>` (the calls one inbound request made), `source=`, `since=<epoch ms>`, `limit=<newest n>`, `summary=1` (no headers or bodies) |
+| `GET /api/requests/<id>` | one entry |
+| `GET /api/health` | `{ app: "netbridge", version, requests, ports }`, lets scripts find a running collector; `ports` are the ones the app listens on |
 | `GET /events` | SSE stream: a `snapshot` event, then live capture events |
 | `POST /api/clear` | resets the capture buffer |
 | `POST /api/resend` | re-issues a captured request; `{"id"}` resends as-is, add `method`/`url`/`headers`/`body` to resend with edits; requires `content-type: application/json`; returns the settled replay entry |
+| `GET /api/mocks` | the mock rules |
+| `POST /api/mocks` | adds a rule, or replaces the one with the same `id`; `PUT` replaces the whole list. Requires `content-type: application/json` |
+| `DELETE /api/mocks/<id>` | removes a rule |
 
 ## Replay
 
@@ -181,9 +253,9 @@ netbridge shows actual outbound network traffic, the bytes that left your server
 
 ## Limitations (v1)
 
-- Inbound requests (browser → your server) are not captured. Browser DevTools already shows that side; an `--inbound` flag is on the roadmap.
+- Inbound requests (browser → your server) are recorded only as the parent of the calls they made; one that calls nothing doesn't appear. Browser DevTools already shows that side in full.
 - Next.js Edge middleware and Edge functions run outside Node, so they're invisible.
-- Raw `undici.request()` / `undici.Client` calls bypass the fetch wrapper. Rare; most apps use fetch or http-based clients.
+- Calls through undici's own API (`undici.request()`, `Client`, `Pool`) get response bodies with undici 7 or later; older versions report headers, status and timing only. Mock rules don't apply to them.
 - A `FormData` request body is shown as multipart with a boundary of netbridge's own; fetch picks its own random one on the wire, so only the separator lines differ.
 - Child processes that aren't Node (curl, python) are invisible.
 
@@ -196,7 +268,7 @@ pnpm test       # node:test suites against the built CLI (no network needed)
 pnpm lint       # Biome
 ```
 
-`node test/run.mjs <name>` runs the matching suites only (`node test/run.mjs clients`). The suites drive the real CLI against a local origin: capture through fetch, http and real clients (axios, got, ky, node-fetch), replay, the collector's guards, buffer limits, and CLI behavior. `NETBRIDGE_HEAVY_TESTS=1` adds a slow case that pushes the collector past V8's maximum string length.
+`node test/run.mjs <name>` runs the matching suites only (`node test/run.mjs clients`). The suites drive the real CLI against a local origin: capture through fetch, http, undici and real clients (axios, got, ky, node-fetch), inbound correlation, mock rules, the overlay, the MCP server, replay, the collector's guards, buffer limits, and CLI behavior. `NETBRIDGE_HEAVY_TESTS=1` adds a slow case that pushes the collector past V8's maximum string length.
 
 ## License
 

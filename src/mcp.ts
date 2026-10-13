@@ -7,7 +7,7 @@
  *   claude mcp add netbridge -- npx -y netbridge mcp
  */
 import * as readline from 'readline';
-import { callSteps, duplicateCounts, startedAt } from './protocol';
+import { callSteps, claimTime, duplicateCounts, startedAt } from './protocol';
 import type { Entry, EntrySummary, Health, MockRule } from './protocol';
 import { packageVersion } from './version';
 
@@ -132,6 +132,24 @@ function timing(e: Entry): string {
   return `timing: waiting for headers ${e.ttfbMs} ms${body}${pieces}`;
 }
 
+const TOKEN_CLAIMS = ['iss', 'sub', 'aud', 'azp', 'client_id', 'scope', 'scp', 'htm', 'htu'];
+
+/** The JWTs in the request headers, decoded, with their validity at the call. */
+function tokenLines(e: Entry): string[] {
+  const at = startedAt(e);
+  return (e.reqTokens ?? []).map((t) => {
+    const claims = TOKEN_CLAIMS.filter((k) => t.claims[k] !== undefined).map(
+      (k) => `${k}=${typeof t.claims[k] === 'string' ? t.claims[k] : JSON.stringify(t.claims[k])}`
+    );
+    const exp = claimTime(t.claims, 'exp');
+    if (exp != null) {
+      const mins = Math.round((exp - at) / 60000);
+      claims.push(`exp=${new Date(exp).toISOString()} (${exp <= at ? `EXPIRED ${-mins} min before the call` : `valid ${mins} min more`})`);
+    }
+    return `token in ${t.header}${t.scheme ? ` (${t.scheme})` : ''}, alg ${t.jose.alg}: ${claims.join(', ')}`;
+  });
+}
+
 function describe(e: Entry, max: number): string {
   const head = [
     `${e.method} ${e.url}`,
@@ -141,6 +159,7 @@ function describe(e: Entry, max: number): string {
     e.mocked ? `answered by mock rule ${e.mocked}` : '',
     e.replayOf ? `replay of ${e.replayOf}` : '',
     timing(e),
+    ...tokenLines(e),
   ].filter(Boolean);
   return [
     head.join('\n'),

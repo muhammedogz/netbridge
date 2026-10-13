@@ -11,6 +11,7 @@
  *   network inspection gets wrong)
  */
 import type * as httpType from 'http';
+import { tokensInHeaders } from '../protocol';
 import type { MockRule } from '../protocol';
 import { currentParent } from './context';
 import { mockFor } from './mocks';
@@ -91,6 +92,7 @@ function instrument(req: httpType.ClientRequest, url: string, method: string, ru
       parentId,
       mocked: rule?.id,
       reqHeaders: sanitizeHeaders(safeGetHeaders(req)),
+      reqTokens: tokensInHeaders(safeGetHeaders(req)),
       reqBody: encoded?.body,
       reqBodyEncoding: encoded?.encoding,
       reqBodyTruncated: reqBody.truncated || undefined,

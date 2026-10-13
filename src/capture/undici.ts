@@ -11,6 +11,7 @@
  * and timing but no response body.
  */
 import * as dc from 'diagnostics_channel';
+import { tokensInHeaders } from '../protocol';
 import { currentParent, isInFetch } from './context';
 import {
   BodyCollector,
@@ -108,6 +109,7 @@ function onCreate({ request }: { request: any }): void {
     url,
     parentId: currentParent(),
     reqHeaders: sanitizeHeaders(parseHeaders(request.headers)),
+    reqTokens: tokensInHeaders(parseHeaders(request.headers)),
     reqBody: sent.body,
     reqBodyEncoding: sent.encoding,
     reqBodyTruncated: sent.truncated,

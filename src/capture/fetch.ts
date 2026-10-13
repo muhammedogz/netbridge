@@ -9,6 +9,7 @@
  * (and before Next.js patches fetch for caching), so Next wraps OUR wrapper —
  * every real outbound call still flows through us.
  */
+import { tokensInHeaders } from '../protocol';
 import type { MockResponse, MockRule } from '../protocol';
 import { currentParent, runInFetch } from './context';
 import { mockFor, mocksReady } from './mocks';
@@ -314,10 +315,11 @@ export function patchFetch(): void {
     const parentId = currentParent();
     const id = nextId();
     const start = Date.now();
-    const reqHeaders = sanitizeHeaders({
+    const rawHeaders = {
       ...headersToObject(isRequest(input) ? input.headers : undefined),
       ...headersToObject(init?.headers),
-    });
+    };
+    const reqHeaders = sanitizeHeaders(rawHeaders);
 
     const reqBodyInfo = await captureRequestBody(input, init);
 
@@ -347,6 +349,7 @@ export function patchFetch(): void {
       parentId,
       mocked: rule?.id,
       reqHeaders,
+      reqTokens: tokensInHeaders(rawHeaders),
       ...reqBodyFields(reqBodyInfo),
     });
 

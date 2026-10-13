@@ -45,6 +45,23 @@ const routes = {
       return `failed: ${err.cause?.message ?? err.message}`;
     }
   },
+  // Calls carrying JWTs: an expired bearer token over fetch, a DPoP proof over http.
+  async '/tokens'() {
+    const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const jwt = (claims) => `${b64({ alg: 'RS256', typ: 'JWT', kid: 'k1' })}.${b64(claims)}.c2ln`;
+    const now = Math.floor(Date.now() / 1000);
+    const access = jwt({ iss: 'https://idp.test', sub: 'u1', aud: 'gateway', azp: 'console', exp: now - 300, scope: 'openid' });
+    await fetch(`${target}/json?tokens=fetch`, { headers: { authorization: `Bearer ${access}` } });
+    await new Promise((resolve, reject) => {
+      http
+        .get(`${target}/json?tokens=http`, { headers: { dpop: jwt({ htm: 'GET', htu: `${target}/json`, iat: now, jti: 'j1' }), cookie: `t=${access}` } }, (r) => {
+          r.resume();
+          r.on('end', resolve);
+        })
+        .on('error', reject);
+    });
+    return 'tokens done';
+  },
   // A body that trickles in over ~1s: shows up early, status first.
   async '/stream'() {
     return (await fetchText(`${target}/slow`)).body;

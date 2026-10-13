@@ -9,6 +9,7 @@
  * the netbridge bubble to the app's HTML pages.
  */
 import type * as httpType from 'http';
+import { tokensInHeaders } from '../protocol';
 import { type InboundContext, runInbound } from './context';
 import { config, emit, nextId, sanitizeHeaders, send } from './shared';
 
@@ -44,7 +45,7 @@ function track(req: httpType.IncomingMessage, res: httpType.ServerResponse, prot
     open() {
       if (opened) return;
       opened = true;
-      emit({ ...base, phase: 'start', ts, reqHeaders: sanitizeHeaders(req.headers) });
+      emit({ ...base, phase: 'start', ts, reqHeaders: sanitizeHeaders(req.headers), reqTokens: tokensInHeaders(req.headers) });
       // A call made after the response went out (fire-and-forget work).
       if (closed) finish();
     },

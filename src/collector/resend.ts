@@ -3,7 +3,7 @@
  * captured entry it refers to, then re-issues it from the collector process.
  */
 import { BodyCollector, ChunkTimeline, chunkSize, encodeBody, nextId, sanitizeHeaders } from '../capture/shared';
-import { REDACTED } from '../protocol';
+import { REDACTED, tokensInHeaders } from '../protocol';
 import type { BodyEncoding, Entry, NetbridgeEvent } from '../protocol';
 
 const RESEND_TIMEOUT_MS = 30_000;
@@ -139,6 +139,7 @@ export async function executeResend(spec: ResendSpec, record: (e: NetbridgeEvent
     // Re-sanitize for the store: a user-re-entered token goes on the wire but
     // must never sit unredacted in the buffer or the SSE stream.
     reqHeaders: sanitizeHeaders(sendHeaders),
+    reqTokens: tokensInHeaders(sendHeaders),
     ...(hasBody ? { reqBody: spec.body, reqBodyEncoding: spec.bodyEncoding ?? 'utf8' } : {}),
     // Mark a lossy replay: the sent body is the truncated captured prefix.
     ...(hasBody && spec.bodyTruncated ? { reqBodyTruncated: true } : {}),

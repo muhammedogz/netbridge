@@ -92,6 +92,33 @@ describe('inbound correlation', () => {
   });
 });
 
+describe('tokens', () => {
+  it('decodes JWTs in request headers, though their values are redacted', async () => {
+    assert.equal(await (await fetch(`${app}/tokens`)).text(), 'tokens done');
+    const list = await nb.waitForRequests(
+      (l) => ['fetch', 'http'].every((s) => l.some((e) => e.url.endsWith(`tokens=${s}`) && settled(e))),
+      'both token calls'
+    );
+    const viaFetch = list.find((e) => e.url.endsWith('tokens=fetch'));
+    assert.equal(viaFetch.reqHeaders.authorization, '«redacted»');
+    assert.equal(viaFetch.reqTokens.length, 1);
+    const [bearer] = viaFetch.reqTokens;
+    assert.equal(bearer.header, 'authorization');
+    assert.equal(bearer.scheme, 'Bearer');
+    assert.equal(bearer.jose.kid, 'k1');
+    assert.equal(bearer.claims.azp, 'console');
+    assert.ok(bearer.claims.exp * 1000 < viaFetch.ts, 'the token was expired');
+    assert.equal(JSON.stringify(bearer).includes('c2ln'), false, 'no signature');
+
+    const viaHttp = list.find((e) => e.url.endsWith('tokens=http'));
+    // The DPoP proof only: a JWT inside a cookie is left alone.
+    assert.deepEqual(
+      viaHttp.reqTokens.map((t) => [t.header, t.claims.htm]),
+      [['dpop', 'GET']]
+    );
+  });
+});
+
 describe('streaming responses', () => {
   it('shows a call with its status while the body is still coming', async () => {
     const done = fetch(`${app}/stream`).then((r) => r.text());

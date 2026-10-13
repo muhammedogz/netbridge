@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { REDACTED } from '../../../src/protocol';
+import { REDACTED, startedAt } from '../../../src/protocol';
 import type { CapturedRequest } from '../types';
 import { displayBody, downloadBlob, downloadBody, headersText, resendRequest, timingTitle } from '../lib';
 import type { Tree } from '../tree';
@@ -9,6 +9,7 @@ import { MockEditor, draftFromEntry } from './Mocks';
 import { ResendDialog } from './ResendDialog';
 import { StatusBadge } from './StatusBadge';
 import { SseBody, TimingSection } from './Stream';
+import { TokensSection, fromHeaders, hasStaleToken, tokensInBody } from './Tokens';
 import { Waterfall } from './Waterfall';
 
 type Kind = 'response' | 'request';
@@ -255,6 +256,11 @@ export function DetailPane({
                 ran {repeats}× for this request
               </span>
             )}
+            {hasStaleToken(r) && (
+              <span className="badge bad" title="a JWT in the request headers was expired or not valid yet: see the Request tab">
+                token expired
+              </span>
+            )}
             {r.mocked && (
               <span className="badge mock" title="answered by a mock rule, not the real backend">
                 mocked by rule {r.mocked}
@@ -344,6 +350,8 @@ export function DetailPane({
               </div>
             </div>
           ) : inbound ? (
+            <>
+              <TokensSection tokens={fromHeaders(r.reqTokens)} at={startedAt(r)} title="tokens" />
             <div className="section">
               <div className="sec-head">
                 <h3>request headers</h3>
@@ -351,10 +359,21 @@ export function DetailPane({
               </div>
               <HeadersGrid headers={r.reqHeaders} />
             </div>
+            </>
           ) : (
             <>
               {shownTab === 'response' && <TimingSection r={r} />}
+              {shownTab === 'request' && (
+                <TokensSection tokens={fromHeaders(r.reqTokens)} at={startedAt(r)} title="tokens" />
+              )}
               <BodySection r={r} kind={shownTab as Kind} />
+              {shownTab === 'response' && (
+                <TokensSection
+                  tokens={tokensInBody(r.resBody, r.resBodyEncoding)}
+                  at={startedAt(r)}
+                  title="tokens in the response"
+                />
+              )}
             </>
           )}
           {mocking && <MockEditor initial={draftFromEntry(r)} onClose={() => setMocking(false)} />}

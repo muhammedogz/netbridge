@@ -53,7 +53,19 @@ export interface NetbridgeEvent {
    * that came in more than one piece; long streams are merged down to 200.
    */
   resChunks?: [number, number][];
+  /** JWTs in the request headers, decoded at capture (before redaction). */
+  reqTokens?: DecodedToken[];
   error?: string;
+}
+
+/** A JWT found in a header: its JOSE header and claims. Never the signature. */
+export interface DecodedToken {
+  /** The header it came in, lowercased: `authorization`, `dpop`, … */
+  header: string;
+  /** The auth scheme in front of it, such as `Bearer` or `DPoP`. */
+  scheme?: string;
+  jose: Record<string, unknown>;
+  claims: Record<string, unknown>;
 }
 
 /** A request as the collector stores it: its events merged, plus a state. */
@@ -118,6 +130,7 @@ const EVENT_FIELDS: readonly (keyof Entry)[] = [
   'durationMs',
   'ttfbMs',
   'resChunks',
+  'reqTokens',
   'error',
 ];
 
@@ -410,4 +423,56 @@ export function callSteps(calls: readonly Pick<Entry, 'ts' | 'durationMs' | 'sta
     }
   }
   return steps;
+}
+
+// ---------------------------------------------------------------------------
+// JWTs. Decoding only: a token's claims tell why a server turned a call
+// away (expired, wrong audience, missing scope); nothing here verifies one.
+// ---------------------------------------------------------------------------
+
+const JWT = /^[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]{4,}\.[A-Za-z0-9_-]*$/;
+
+function base64UrlJson(part: string): unknown {
+  const b64 = part.replace(/-/g, '+').replace(/_/g, '/');
+  const binary = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
+  return JSON.parse(new TextDecoder().decode(Uint8Array.from(binary, (c) => c.charCodeAt(0))));
+}
+
+const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v);
+
+/** The JOSE header and claims of a signed JWT (`a.b.c`), or null for anything else. */
+export function decodeJwt(token: string): { jose: Record<string, unknown>; claims: Record<string, unknown> } | null {
+  if (!JWT.test(token)) return null;
+  try {
+    const [h, c] = token.split('.');
+    const jose = base64UrlJson(h);
+    const claims = base64UrlJson(c);
+    if (!isObject(jose) || typeof jose.alg !== 'string' || !isObject(claims)) return null;
+    return { jose, claims };
+  } catch {
+    return null;
+  }
+}
+
+// A cookie header can carry many tokens of its own; it is left alone.
+const TOKEN_SKIP = new Set(['cookie', 'set-cookie']);
+
+/** Every JWT in a set of headers, bare or after an auth scheme (`Bearer x.y.z`). */
+export function tokensInHeaders(headers: Record<string, unknown> | undefined | null): DecodedToken[] | undefined {
+  const out: DecodedToken[] = [];
+  for (const [key, raw] of Object.entries(headers ?? {})) {
+    const name = key.toLowerCase();
+    if (TOKEN_SKIP.has(name) || raw == null) continue;
+    const value = String(Array.isArray(raw) ? raw[0] : raw).trim();
+    const m = /^([A-Za-z][\w-]*)\s+(\S+)$/.exec(value);
+    const decoded = decodeJwt(m ? m[2] : value);
+    if (decoded) out.push({ header: name, ...(m ? { scheme: m[1] } : {}), ...decoded });
+  }
+  return out.length ? out : undefined;
+}
+
+/** Seconds-since-epoch claim (`exp`, `iat`, `nbf`) as ms, when it is a number. */
+export function claimTime(claims: Record<string, unknown>, name: 'exp' | 'iat' | 'nbf'): number | undefined {
+  const v = claims[name];
+  return typeof v === 'number' && Number.isFinite(v) ? v * 1000 : undefined;
 }

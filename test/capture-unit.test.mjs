@@ -11,7 +11,7 @@ import { ROOT } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildUrl } = require(path.join(ROOT, 'dist', 'capture', 'http.js'));
-const { mergeEvent, entrySize } = require(path.join(ROOT, 'dist', 'protocol.js'));
+const { mergeEvent, entrySize, decodeJwt, tokensInHeaders, claimTime } = require(path.join(ROOT, 'dist', 'protocol.js'));
 const { ChunkTimeline } = require(path.join(ROOT, 'dist', 'capture', 'shared.js'));
 
 describe('buildUrl', () => {
@@ -64,6 +64,34 @@ describe('mergeEvent', () => {
     assert.equal(e.junk, undefined);
     assert.equal(e.polluted, undefined);
     assert.equal(Object.getPrototypeOf(e), Object.prototype);
+  });
+});
+
+describe('JWTs', () => {
+  const b64 = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
+  const jwt = `${b64({ alg: 'ES256' })}.${b64({ sub: 'ş-ü', exp: 1 })}.sig`;
+
+  it('decodes a signed JWT, unicode claims included', () => {
+    assert.deepEqual(decodeJwt(jwt), { jose: { alg: 'ES256' }, claims: { sub: 'ş-ü', exp: 1 } });
+    assert.equal(claimTime({ exp: 1 }, 'exp'), 1000);
+  });
+
+  it('ignores what is not one', () => {
+    assert.equal(decodeJwt('not.a.jwt'), null);
+    assert.equal(decodeJwt(`${b64({ typ: 'JWT' })}.${b64({ a: 1 })}.x`), null, 'no alg');
+    assert.equal(decodeJwt(`${b64({ alg: 'dir', enc: 'A256GCM' })}.aaaa.bbbb.cccc.dddd`), null, 'JWE');
+  });
+
+  it('finds tokens in headers, bare or after a scheme, and skips cookies', () => {
+    const found = tokensInHeaders({ Authorization: `DPoP ${jwt}`, 'x-id-token': jwt, cookie: `a=${jwt}`, accept: '*/*' });
+    assert.deepEqual(
+      found.map((t) => [t.header, t.scheme]),
+      [
+        ['authorization', 'DPoP'],
+        ['x-id-token', undefined],
+      ]
+    );
+    assert.equal(tokensInHeaders({ accept: '*/*' }), undefined);
   });
 });
 

@@ -89,6 +89,12 @@ Each call's time splits in two: waiting until the response headers came in (time
 
 A response whose body is still coming after 100 ms shows up early, with its status and headers, and finishes when the last byte is in. That's how an LLM call looks while it streams. The detail pane's **timing** strip draws one tick per piece of the body as it came off the wire. A `text/event-stream` body opens as a list of events, with the raw text one click away. For Anthropic and OpenAI streams it also puts the streamed text back together from the deltas, so you can read what the model said.
 
+## Tokens
+
+A 401 usually comes down to the token: expired, issued for another audience, or missing a scope. netbridge decodes the JWTs in each request's headers (`Authorization: Bearer …`, `Authorization: DPoP …`, a `DPoP` proof, or any header holding a bare JWT) and shows their claims on the Request tab: `iss`, `sub`, `aud`, `azp`, `scope`, and `exp` measured against the moment the call went out. A token that was already expired gets a red **token expired** badge on the call.
+
+This works with redaction on. The header value stays `«redacted»`, and netbridge keeps only the JOSE header and the claims, never the signature, so a captured token can't be replayed. JWTs in a response body (a token endpoint's `access_token` and `id_token`) are decoded on the Response tab. netbridge decodes tokens; it doesn't verify them.
+
 ## Mocking backends
 
 A mock rule answers the app's outbound calls in place of the backend, with a canned response, a delay or a network failure. Reach for it when the backend doesn't exist yet, is down, or you need to see its error path. The app doesn't change, and a rule applies to the next call, even in a dev server that's already running.

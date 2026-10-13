@@ -227,3 +227,13 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .sse-event { display: grid; grid-template-columns: minmax(70px, max-content) 1fr; gap: 10px; padding: 3px 8px; border-bottom: 1px solid var(--row-border); font-size: 11px; }
 .sse-name { color: var(--purple); white-space: nowrap; }
 .sse-data { color: var(--code); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* decoded JWTs */
+.badge.bad { color: var(--red); border-color: var(--red); }
+.token { border: 1px solid var(--border); border-radius: 6px; padding: 8px 10px; margin-bottom: 8px; background: var(--bg); }
+.token-head { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; margin-bottom: 6px; }
+.token-head .badge { margin-left: 0; }
+.token-where { color: var(--accent); }
+.token-jose, .token-note { color: var(--fg-dim); font-size: 11px; }
+.token details { margin-top: 6px; }
+.token summary { cursor: pointer; color: var(--fg-dim); font-size: 11px; }

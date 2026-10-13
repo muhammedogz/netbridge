@@ -31,13 +31,18 @@ const bigRun = (count, kb, bufferLimit, env = {}) =>
 
 const doneAll = (nb) => waitFor(() => nb.output.includes('[big] all requests done'), { timeoutMs: 120_000 });
 
-/** Read /events for `ms` and return the raw text. */
-function readEvents(port, ms) {
+/**
+ * Read /events for `ms` and return the raw text. `keep` caps how much is
+ * retained: a drain past V8's max string length must not throw in the test.
+ */
+function readEvents(port, ms, keep = Number.POSITIVE_INFINITY) {
   return new Promise((resolve, reject) => {
     const req = http.get({ host: '127.0.0.1', port, path: '/events' }, (res) => {
       let text = '';
       res.setEncoding('utf8');
-      res.on('data', (c) => (text += c));
+      res.on('data', (c) => {
+        if (text.length < keep) text += c;
+      });
       setTimeout(() => {
         req.destroy();
         resolve(text);
@@ -99,7 +104,7 @@ describe('large table', { skip: process.env.NETBRIDGE_HEAVY_TESTS !== '1' }, () 
       let chars = 0;
       for await (const chunk of res.body) chars += chunk.length;
       assert.ok(chars > 536_870_888, `payload larger than one V8 string (${chars})`);
-      await readEvents(nb.port, 2000);
+      await readEvents(nb.port, 2000, 0);
       const health = await (await fetch(`${nb.base}/api/health`)).json();
       assert.equal(health.requests, 1100, 'collector still alive and complete');
     } finally {

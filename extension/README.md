@@ -8,6 +8,10 @@ It contains no capture logic: the panel auto-discovers a running netbridge
 collector on localhost (ports 4499–4510, or a manual port) and embeds its UI.
 Stop/restart your dev process freely — the panel reconnects automatically.
 
+With several apps running through netbridge at once, the panel shows the
+collector whose app serves the inspected page (collectors report their app's
+ports), and switches when you navigate to another app.
+
 ## Install (unpacked, while not on the Web Store)
 
 1. `chrome://extensions` → enable **Developer mode** (top right)

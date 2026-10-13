@@ -210,7 +210,13 @@ Prefer living inside DevTools? `extension/` ships a Chrome DevTools panel, like 
 
 ## For AI agents
 
-Captured traffic is exactly the evidence a coding agent (Claude Code, Cursor) needs when it debugs your server, so netbridge hands it over in three ways.
+Captured traffic is exactly the evidence a coding agent (Claude Code, Cursor) needs when it debugs your server, so netbridge hands it over in four ways.
+
+An [agent skill](skills/netbridge/SKILL.md) teaches the agent the whole workflow: running the app through netbridge, isolating an action, reading entries, mocking a backend, spotting waterfalls and repeated calls. Install it with the [skills CLI](https://github.com/vercel-labs/skills), or copy `skills/netbridge/` into your agent's skills folder (`~/.claude/skills/` for Claude Code):
+
+```bash
+npx skills add muhammedogz/netbridge
+```
 
 `netbridge mcp` is an [MCP](https://modelcontextprotocol.io) server for the agent to use directly:
 

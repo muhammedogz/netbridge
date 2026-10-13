@@ -65,15 +65,20 @@ export interface Row {
 /**
  * Rows in arrival order. Grouped, each inbound request is followed by its
  * calls (unless collapsed); a call whose request is filtered out stays at
- * its own place.
+ * its own place. Flat, every entry is a row of its own; `showInbound: false`
+ * leaves out the inbound requests themselves.
  */
 export function toRows(
   filtered: readonly CapturedRequest[],
   tree: Tree,
   grouped: boolean,
-  collapsed: ReadonlySet<string>
+  collapsed: ReadonlySet<string>,
+  showInbound = true
 ): Row[] {
-  if (!grouped) return filtered.map((r) => ({ r, depth: 0 }));
+  if (!grouped) {
+    const list = showInbound ? filtered : filtered.filter((r) => r.source !== 'inbound');
+    return list.map((r) => ({ r, depth: 0 }));
+  }
   const visible = new Set(filtered.map((r) => r.id));
   const rows: Row[] = [];
   for (const r of filtered) {

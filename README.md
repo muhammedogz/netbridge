@@ -61,7 +61,7 @@ Dark and light themes, no external assets, everything served from `127.0.0.1`. T
 
 ## Calls per request
 
-Each call is tied to the request your server was handling when it made it: the page render, the API route, the server action. With `group` on (the default), the list shows that inbound request as a header row, with its calls indented below it:
+Each call is tied to the request your server was handling when it made it: the page render, the API route, the server action. By default the list shows that inbound request as a header row, with its calls indented below it:
 
 ```
 ▾ 3 calls  dashboard   localhost:3000/        200   840 ms   inbound
@@ -75,9 +75,9 @@ Clicking the inbound row opens its **Calls** tab, a waterfall of what it called 
 - **sequential steps**: runs of calls that overlap in time. Five calls in five steps waited on each other, which is the classic Server Component waterfall; five calls in one step ran in parallel.
 - **repeated calls** (`×2`): the same method, url and body more than once for one request, the usual sign of a missing `cache()` or dedupe. The body counts, so different GraphQL queries to one endpoint aren't flagged.
 
-A call's detail pane links back to its request ("for GET /dashboard"). The `▸` caret folds a request's calls away.
+A call's detail pane links back to its request ("for GET /dashboard"). The `▸` caret folds a request's calls away. To get the plain list back, one row per outbound call in arrival order, pick **flat list** under the settings (gear) button in the header; the choice is kept in the browser. The flat list leaves inbound requests out unless the `inbound` source chip is on.
 
-This needs no setup: the preload follows each request handler through `await`s, timers and promise chains with `AsyncLocalStorage`, the same mechanism Next.js uses for `headers()` and `cookies()`. An inbound request is recorded only once it makes an outbound call, so static files and HMR pings stay out of the list. Calls made outside any request (startup, cron jobs) have no parent and show on their own.
+This needs no setup: the preload follows each request handler through `await`s, timers and promise chains with `AsyncLocalStorage`, the same mechanism Next.js uses for `headers()` and `cookies()`. An inbound request is recorded only once it makes an outbound call, so static files and HMR pings stay out of the list. Calls made outside any request (startup, cron jobs) have no parent and show on their own. Work right after the response (Next's `after()`, a log flush) still counts toward the request; a call that starts more than 2 s after the response and the request's last call does not, so a telemetry exporter whose timer a request happened to start (an OpenTelemetry batch export) isn't pinned to that request.
 
 ## Mocking backends
 
@@ -220,7 +220,7 @@ claude mcp add netbridge -- npx -y netbridge mcp
 
 Its tools: `list_requests` (filter by url, method, status, source, or the inbound request that made the calls), `get_request` (headers and decoded bodies), `get_call_tree` (one page render's calls with timing, repeats and sequential steps), `resend_request`, `clear_requests`, and `list_mocks` / `set_mock` / `delete_mock`, so the agent can stub a backend while it works. It finds the running collector on ports 4499–4510; set `NETBRIDGE_PORT` in its environment to pin one.
 
-The `api` button in the header copies a short briefing to paste into the agent's chat: the endpoint list below, a curl example, and how to read entries (truncation flags, base64 bodies, redacted headers). After that the agent can watch your traffic on its own.
+The `mcp / api` button in the header (also under the settings menu, "connect an agent") opens a dialog with both ways in: the MCP commands to copy (Claude Code, and a config block for Cursor, Claude Desktop and other clients), and **copy briefing**, a short text to paste into the agent's chat: the endpoint list below, a curl example, and how to read entries (truncation flags, base64 bodies, redacted headers). After that the agent can watch your traffic on its own.
 
 Each request's copy menu also has "AI prompt". It copies the full captured request plus a task matched to how the call ended. A network failure asks for root-cause analysis of the connection error, a 5xx asks the agent to read the response for the failure detail, a 4xx asks what the server objected to and for a corrected request, and a success asks for an explanation and review.
 

@@ -6,10 +6,11 @@ import { ThemeToggle } from './components/ThemeToggle';
 import { DetailPane } from './components/DetailPane';
 import { ExportMenu, type ExportKind } from './components/ExportMenu';
 import { FilterBar } from './components/FilterBar';
-import { CopyButton } from './components/CopyButton';
+import { AgentDialog } from './components/AgentDialog';
 import { MocksDialog } from './components/Mocks';
+import { SettingsMenu } from './components/SettingsMenu';
 import { buildTree, toRows } from './tree';
-import { agentApiInstructions, buildHar, downloadBlob } from './lib';
+import { buildHar, downloadBlob } from './lib';
 import {
   matchesFilter,
   matchesStructured,
@@ -27,6 +28,7 @@ const FILTER_HELP = [
   'e.g. -host:localhost:4318 method:post status:5xx',
 ].join('\n');
 
+/** '0' picks the flat list in settings; grouped is the default. */
 const GROUP_KEY = 'netbridge-group';
 
 function idFromHash(): string | null {
@@ -57,6 +59,7 @@ export function App({ config }: { config: ViewConfig }) {
   const [grouped, setGrouped] = useState(storedGroup);
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [showMocks, setShowMocks] = useState(false);
+  const [showAgent, setShowAgent] = useState(false);
   const [filterText, setFilterText] = useFilterText(config);
   const [methods, setMethods] = useState<ReadonlySet<string>>(new Set());
   const [statuses, setStatuses] = useState<ReadonlySet<StatusClass>>(new Set());
@@ -85,7 +88,13 @@ export function App({ config }: { config: ViewConfig }) {
   }, [requests, terms, methods, statuses, sources, minMs, maxMs, anyStructured]);
   const hidden = requests.length - filtered.length;
   const tree = useMemo(() => buildTree(requests), [requests]);
-  const rows = useMemo(() => toRows(filtered, tree, grouped, collapsed), [filtered, tree, grouped, collapsed]);
+  // The flat list is the classic view: outbound calls only, unless the
+  // inbound source is picked in the filter bar.
+  const showInbound = grouped || sources.has('inbound');
+  const rows = useMemo(
+    () => toRows(filtered, tree, grouped, collapsed, showInbound),
+    [filtered, tree, grouped, collapsed, showInbound]
+  );
   const enabledMocks = mocks.filter((m) => m.enabled).length;
 
   useEffect(() => {
@@ -162,29 +171,8 @@ export function App({ config }: { config: ViewConfig }) {
         <span id="count" title={hidden > 0 ? `${hidden} hidden by the filter` : undefined}>
           {filterText || anyStructured ? `${filtered.length}/${requests.length}` : requests.length}
         </span>
-        <CopyButton
-          className=""
-          label="api"
-          title="copy instructions that point an AI agent (or script) at the live capture API"
-          text={() => agentApiInstructions(window.location.origin)}
-        />
-        <button
-          type="button"
-          className={grouped ? 'on' : ''}
-          aria-pressed={grouped}
-          title="show each call under the inbound request (page render, API route) that made it"
-          onClick={() => {
-            setGrouped((g) => {
-              try {
-                localStorage.setItem(GROUP_KEY, g ? '0' : '1');
-              } catch {
-                /* ignore */
-              }
-              return !g;
-            });
-          }}
-        >
-          group
+        <button type="button" title="connect an AI agent: the MCP server or the HTTP API" onClick={() => setShowAgent(true)}>
+          mcp / api
         </button>
         <button
           type="button"
@@ -205,6 +193,18 @@ export function App({ config }: { config: ViewConfig }) {
           clear
         </button>
         <ThemeToggle />
+        <SettingsMenu
+          onAgent={() => setShowAgent(true)}
+          grouped={grouped}
+          onGrouped={(g) => {
+            setGrouped(g);
+            try {
+              localStorage.setItem(GROUP_KEY, g ? '1' : '0');
+            } catch {
+              /* ignore */
+            }
+          }}
+        />
       </header>
       <FilterBar
         requests={requests}
@@ -246,6 +246,7 @@ export function App({ config }: { config: ViewConfig }) {
         />
       </main>
       {showMocks && <MocksDialog rules={mocks} onClose={() => setShowMocks(false)} />}
+      {showAgent && <AgentDialog onClose={() => setShowAgent(false)} />}
     </>
   );
 }

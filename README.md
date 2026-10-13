@@ -55,7 +55,7 @@ The filter box matches url, method, status, headers and bodies. Terms separated 
 
 Click a row for the detail pane with headers, pretty-printed bodies, and copy and download buttons per body. `Esc` closes it. If you're typing in the filter box, the first `Esc` only leaves the box.
 
-"copy request" copies the selected request as Markdown, JSON, cURL, a `fetch` call, Python `requests` or an AI prompt (see [For AI agents](#for-ai-agents)). "export" downloads the session as raw JSON or as HAR 1.2, which opens in Chrome DevTools, Insomnia and other HAR viewers.
+"copy request" copies the selected request as Markdown, JSON, cURL, a `fetch` call, Python `requests` or an AI prompt (see [For AI agents](#for-ai-agents)). It also turns the call into a test double: an MSW handler or a nock scope that answers with the captured status, headers and body, ready to paste into a test. "export" downloads the session as raw JSON or as HAR 1.2, which opens in Chrome DevTools, Insomnia and other HAR viewers.
 
 The header also holds **mocks** (see [Mocking backends](#mocking-backends)), **mcp / api** (see [For AI agents](#for-ai-agents)), a theme switch (light, dark, or follow the system) and a settings menu. The settings menu picks the list layout, grouped or flat, and remembers it in the browser.
 

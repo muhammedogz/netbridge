@@ -9,6 +9,7 @@ import {
   formatRequestPrompt,
   formatRequestPython,
 } from '../lib';
+import { formatMswHandler, formatNock } from '../testcode';
 
 interface MenuItem {
   label: string;
@@ -24,6 +25,8 @@ const ITEMS: MenuItem[] = [
   { label: 'cURL', build: (r) => formatRequestCurl(r) },
   { label: 'fetch (JS)', build: (r) => formatRequestFetch(r) },
   { label: 'Python — requests', build: (r) => formatRequestPython(r) },
+  { label: 'MSW handler (test mock)', build: (r) => formatMswHandler(r) },
+  { label: 'nock (test mock)', build: (r) => formatNock(r) },
 ];
 
 // Separated in the menu: not a data format but a ready-to-paste agent briefing.

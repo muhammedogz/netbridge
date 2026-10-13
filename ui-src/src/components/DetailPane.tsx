@@ -9,6 +9,45 @@ import { StatusBadge } from './StatusBadge';
 
 type Kind = 'response' | 'request';
 
+const WIDTH_KEY = 'netbridge-detail-width';
+
+function storedWidth(): number | null {
+  try {
+    const n = Number(localStorage.getItem(WIDTH_KEY));
+    return n > 0 ? n : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Drag handle on the pane's left edge. The width it sets is still clamped by
+ * the CSS min/max, so the request list always keeps room for its name column.
+ */
+function Resizer({ onResize, onDone }: { onResize: (px: number) => void; onDone: (px: number) => void }) {
+  const [dragging, setDragging] = useState(false);
+  return (
+    <div
+      className={`resizer${dragging ? ' dragging' : ''}`}
+      onPointerDown={(e) => {
+        e.currentTarget.setPointerCapture(e.pointerId);
+        setDragging(true);
+      }}
+      onPointerMove={(e) => {
+        if (!dragging) return;
+        const main = e.currentTarget.parentElement?.getBoundingClientRect();
+        if (main) onResize(Math.round(main.right - e.clientX));
+      }}
+      onPointerUp={(e) => {
+        setDragging(false);
+        // Persist the width the pane actually got after the CSS clamp.
+        const pane = e.currentTarget.nextElementSibling;
+        if (pane) onDone(Math.round(pane.getBoundingClientRect().width));
+      }}
+    />
+  );
+}
+
 function HeadersGrid({ headers }: { headers?: Record<string, string> }) {
   const entries = Object.entries(headers || {});
   if (!entries.length)
@@ -83,6 +122,7 @@ export function DetailPane({
   onSelectEntry: (id: string) => void;
 }) {
   const [tab, setTab] = useState<Kind>('response');
+  const [width, setWidth] = useState(storedWidth);
   const [editing, setEditing] = useState(false);
   // Id of the entry with a resend in flight — survives selection changes so
   // the button state can't be reset out from under a pending send.
@@ -127,7 +167,21 @@ export function DetailPane({
     : [];
 
   return (
-    <div id="detail" className={r ? 'open' : ''}>
+    <>
+      {r && (
+        <Resizer
+          onResize={setWidth}
+          onDone={(px) => {
+            setWidth(px);
+            try {
+              localStorage.setItem(WIDTH_KEY, String(px));
+            } catch {
+              /* ignore */
+            }
+          }}
+        />
+      )}
+    <div id="detail" className={r ? 'open' : ''} style={r && width ? { width } : undefined}>
       {r && (
         <div className="inner">
           <button type="button" className="close" aria-label="close" onClick={onClose}>
@@ -227,5 +281,6 @@ export function DetailPane({
         </div>
       )}
     </div>
+    </>
   );
 }

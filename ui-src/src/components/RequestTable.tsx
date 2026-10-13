@@ -3,13 +3,22 @@ import type { CapturedRequest } from '../types';
 import { fmtSize } from '../lib';
 import { StatusBadge } from './StatusBadge';
 
+// An id segment (`/users/42`, `/orders/<uuid>`) says little on its own.
+const ID_SEGMENT = /^(\d+|[0-9a-f]{8}-[0-9a-f-]{27}|[0-9a-f]{24,})$/i;
+
+// Name first, like the DevTools Network tab: the last path segment is what
+// tells requests apart, so a narrow column truncates the host, not the name.
 function UrlCell({ url }: { url: string }) {
   try {
     const u = new URL(url);
+    const path = u.pathname.length > 1 && u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
+    let cut = path.lastIndexOf('/') + 1;
+    if (cut > 1 && ID_SEGMENT.test(path.slice(cut))) cut = path.lastIndexOf('/', cut - 2) + 1;
+    const segment = path.slice(cut);
     return (
       <>
-        <span className="host">{u.host}</span>
-        {u.pathname + u.search}
+        <span className="name">{(segment || u.host) + u.search}</span>
+        {segment && <span className="host">{u.host + path.slice(0, cut)}</span>}
       </>
     );
   } catch {
@@ -22,9 +31,11 @@ interface Props {
   total: number;
   selectedId: string | null;
   onSelect: (id: string) => void;
+  /** Detail pane is open: keep only the columns that identify a request. */
+  compact: boolean;
 }
 
-export function RequestTable({ requests, total, selectedId, onSelect }: Props) {
+export function RequestTable({ requests, total, selectedId, onSelect, compact }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
 
@@ -44,16 +55,16 @@ export function RequestTable({ requests, total, selectedId, onSelect }: Props) {
         if (el) stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 60;
       }}
     >
-      <table>
+      <table className={compact ? 'compact' : undefined}>
         <thead>
           <tr>
-            <th>#</th>
-            <th>method</th>
-            <th>url</th>
+            <th className="opt">#</th>
+            <th className="opt">method</th>
+            <th>name</th>
             <th>status</th>
-            <th>time</th>
-            <th>size</th>
-            <th>via</th>
+            <th className="opt">time</th>
+            <th className="opt">size</th>
+            <th className="opt">via</th>
           </tr>
         </thead>
         <tbody>
@@ -63,17 +74,17 @@ export function RequestTable({ requests, total, selectedId, onSelect }: Props) {
               className={r.id === selectedId ? 'selected' : ''}
               onClick={() => onSelect(r.id)}
             >
-              <td className="seq">{r.seq}</td>
-              <td className={`method ${r.method}`}>{r.method}</td>
+              <td className="seq opt">{r.seq}</td>
+              <td className={`method opt ${r.method}`}>{r.method}</td>
               <td className="url" title={r.url}>
                 <UrlCell url={r.url} />
               </td>
               <td>
                 <StatusBadge r={r} />
               </td>
-              <td>{r.durationMs != null ? `${r.durationMs} ms` : ''}</td>
-              <td>{fmtSize(r.resBody, r.resBodyEncoding)}</td>
-              <td className="src">
+              <td className="opt">{r.durationMs != null ? `${r.durationMs} ms` : ''}</td>
+              <td className="opt">{fmtSize(r.resBody, r.resBodyEncoding)}</td>
+              <td className="src opt">
                 {r.source || ''}
                 {r.pid ? <span title="pid"> #{r.pid}</span> : null}
               </td>

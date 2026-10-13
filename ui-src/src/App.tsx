@@ -165,6 +165,7 @@ export function App({ config }: { config: ViewConfig }) {
           total={requests.length}
           selectedId={selectedId}
           onSelect={(id) => setSelectedId(id === selectedId ? null : id)}
+          compact={selected !== null}
         />
         <DetailPane r={selected} onClose={() => setSelectedId(null)} onSelectEntry={setSelectedId} />
       </main>

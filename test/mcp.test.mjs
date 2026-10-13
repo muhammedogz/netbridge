@@ -40,6 +40,8 @@ let origin;
 let nb;
 let app;
 let mcp;
+// GET /mocked requests the app served: each is recorded with its two calls.
+let mockedServed = 0;
 
 before(async () => {
   origin = await startOrigin();
@@ -125,6 +127,7 @@ describe('netbridge mcp', () => {
     const body = await waitFor(
       async () => {
         const b = JSON.parse(await (await fetch(`${app}/mocked`)).text());
+        mockedServed++;
         return b.fetch.status === 418 ? b : null;
       },
       { label: 'mock applied' }
@@ -138,8 +141,12 @@ describe('netbridge mcp', () => {
   });
 
   it('clears the buffer', async () => {
-    // Late events of requests still in flight would land after the clear.
-    await nb.waitForRequests((l) => l.every(settled), 'all requests settled');
+    // Events still on their way would land after the clear: wait for every
+    // /mocked request served above to arrive, and for everything to settle.
+    await nb.waitForRequests(
+      (l) => l.filter((e) => e.source === 'inbound' && e.url.endsWith('/mocked')).length === mockedServed && l.every(settled),
+      'all requests recorded and settled'
+    );
     assert.match((await mcp.tool('clear_requests')).text, /cleared/);
     assert.equal((await nb.requests()).length, 0);
   });

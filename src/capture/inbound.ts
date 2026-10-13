@@ -39,14 +39,7 @@ function track(req: httpType.IncomingMessage, res: httpType.ServerResponse, prot
       emit({ ...base, phase: 'error', ts: now, durationMs: now - ts, error: 'connection closed before the response finished' });
     }
   };
-  res.once('close', () => {
-    closed = true;
-    if (opened) finish();
-  });
-
-  if (overlay) injectOverlay(req, res, id);
-
-  return {
+  const ctx: InboundContext = {
     id,
     open() {
       if (opened) return;
@@ -56,6 +49,15 @@ function track(req: httpType.IncomingMessage, res: httpType.ServerResponse, prot
       if (closed) finish();
     },
   };
+  res.once('close', () => {
+    closed = true;
+    ctx.idleSince = Date.now();
+    if (opened) finish();
+  });
+
+  if (overlay) injectOverlay(req, res, id);
+
+  return ctx;
 }
 
 /**

@@ -61,6 +61,14 @@ const server = http.createServer(async (req, res) => {
     res.end(html);
     return;
   }
+  if (path === '/later') {
+    // Work after the response: a call right away still belongs to the
+    // request; one from a timer long after it (a telemetry flush) does not.
+    res.end('sent');
+    fetchText(`${target}/json?soon`).catch(() => {});
+    setTimeout(() => fetchText(`${target}/json?late`).catch(() => {}), 2600);
+    return;
+  }
   if (path === '/html-twice') {
     // A defensive second end(): a no-op in Node, so it must stay one.
     res.writeHead(200, { 'content-type': 'text/html' });

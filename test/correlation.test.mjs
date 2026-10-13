@@ -92,6 +92,20 @@ describe('inbound correlation', () => {
   });
 });
 
+describe('calls after the response', () => {
+  it('keeps a call made right away and drops one from a much later timer', async () => {
+    assert.equal(await (await fetch(`${app}/later`)).text(), 'sent');
+    const list = await nb.waitForRequests(
+      (l) => l.some((e) => e.url.endsWith('?late') && settled(e)) && l.some((e) => e.url.endsWith('?soon') && settled(e)),
+      'both calls of /later'
+    );
+    const later = inboundFor(list, '/later');
+    assert.ok(later, 'the /later request is recorded');
+    assert.equal(list.find((e) => e.url.endsWith('?soon')).parentId, later.id);
+    assert.equal(list.find((e) => e.url.endsWith('?late')).parentId, undefined);
+  });
+});
+
 describe('undici', () => {
   // undici 8 needs Node 22.19+; its response bodies come from 7.x channels.
   const [major, minor] = process.versions.node.split('.').map(Number);

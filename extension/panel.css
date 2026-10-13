@@ -13,6 +13,8 @@
 }
 
 * { box-sizing: border-box; margin: 0; padding: 0; }
+/* .connect/#ui set display, which would otherwise override the hidden attribute. */
+[hidden] { display: none !important; }
 html, body { height: 100%; }
 body { background: var(--bg); color: var(--fg); font-family: var(--mono); font-size: 12px; }
 

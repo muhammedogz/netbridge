@@ -44,6 +44,7 @@ Reading entries:
 - Bodies are decoded (gzip/br/deflate). Binary bodies are base64 (`reqBodyEncoding` / `resBodyEncoding: "base64"`); bodies over the cap set `reqBodyTruncated` / `resBodyTruncated`. Redacted header values read `«redacted»`.
 - `mocked` names the mock rule that answered the call instead of the backend.
 - `ttfbMs` is the wait until the response headers came in; `durationMs` runs until the body was done. A long `ttfbMs` points at the server, a long gap after it at a big or streamed body.
+- GraphQL calls all share one url; `summary=1` entries carry `gql` (operations such as `"mutation AddOrder"`) and `gqlErrors` (the messages of the response's `errors` array). A 200 with `gqlErrors` is a failed operation.
 - `reqTokens` holds the JWTs from the request headers, decoded at capture: `{ header, scheme, jose, claims }`, never the signature. Check `exp` against the entry's start (`ts - durationMs`), `aud`, `azp` and `scope` first when a call gets a 401 or 403; this works even though the header value itself reads `«redacted»`.
 - `resChunks` lists when a body that came in pieces arrived, as `[ms since start, bytes]`. A `pending` entry that already has a `status` is still receiving its body: a stream such as an LLM response.
 

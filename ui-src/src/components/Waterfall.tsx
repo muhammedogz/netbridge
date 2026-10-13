@@ -75,7 +75,7 @@ export function Waterfall({
               <span className="wf-name">
                 {repeats && <span className="tag dup">×{repeats}</span>}
                 {c.mocked && <span className="tag mock">mock</span>}
-                <span className={`method ${c.method}`}>{c.method}</span> <UrlCell url={c.url} />
+                <span className={`method ${c.method}`}>{c.method}</span> <UrlCell url={c.url} gql={c.gql} />
               </span>
               <span className={`wf-status ${cls === 'error' ? 'error' : c.status ? `status-${String(c.status)[0]}` : ''}`}>
                 {cls === 'error' ? 'err' : cls === 'pending' ? '…' : c.status}

@@ -237,3 +237,13 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .token-jose, .token-note { color: var(--fg-dim); font-size: 11px; }
 .token details { margin-top: 6px; }
 .token summary { cursor: pointer; color: var(--fg-dim); font-size: 11px; }
+
+/* GraphQL */
+.tag.gql { color: var(--accent); }
+.tag.gql.mutation { color: var(--green); }
+.tag.gql.subscription { color: var(--purple); }
+.tag.gqlerr { color: var(--red); }
+.badge.gql { color: var(--accent); border-color: var(--accent); }
+.gql-op { margin-bottom: 10px; }
+.gql-name { color: var(--accent); margin-bottom: 4px; }
+.gql-errors { margin: 0; padding-left: 18px; color: var(--red); }

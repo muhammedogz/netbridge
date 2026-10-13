@@ -228,3 +228,17 @@ eq(withExclusions('post ', []), 'post ', 'no patterns leave the filter untouched
 eq(visible(withExclusions('', ['localhost:4318'])), allBut('traces', 'metrics'), 'seed hides only collector traffic');
 
 });
+
+test('op: matches GraphQL operations', () => {
+  const rows = [
+    row('getUser', { method: 'POST', url: 'https://api.test/graphql', gql: ['query GetUser'] }),
+    row('addOrder', { method: 'POST', url: 'https://api.test/graphql', gql: ['mutation AddOrder', 'query Cart'] }),
+    row('rest', { url: 'https://api.test/users' }),
+  ];
+  const shown = (query) => rows.filter((r) => matchesFilter(r, parseFilter(query))).map((r) => r.name);
+  eq(shown('op:getuser'), ['getUser'], 'by name, case-insensitive');
+  eq(shown('op:mutation'), ['addOrder'], 'by type');
+  eq(shown('op:cart'), ['addOrder'], 'any operation of a batch');
+  eq(shown('operation:query'), ['getUser', 'addOrder'], 'operation: alias');
+  eq(shown('-op:getuser'), ['addOrder', 'rest'], 'negated');
+});

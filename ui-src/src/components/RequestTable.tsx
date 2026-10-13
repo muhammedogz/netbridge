@@ -8,9 +8,23 @@ const ID_SEGMENT = /^(\d+|[0-9a-f]{8}-[0-9a-f-]{27}|[0-9a-f]{24,})$/i;
 
 // Name first, like the DevTools Network tab: the last path segment is what
 // tells requests apart, so a narrow column truncates the host, not the name.
-export function UrlCell({ url }: { url: string }) {
+export function UrlCell({ url, gql }: { url: string; gql?: string[] }) {
   try {
     const u = new URL(url);
+    if (gql?.length) {
+      // GraphQL: every operation shares the url, so its name leads.
+      const [type, ...name] = gql[0].split(' ');
+      return (
+        <>
+          <span className={`tag gql ${type}`}>{type === 'subscription' ? 'sub' : type}</span>
+          <span className="name">
+            {name.join(' ')}
+            {gql.length > 1 ? ` +${gql.length - 1}` : ''}
+          </span>
+          <span className="host">{u.host + u.pathname}</span>
+        </>
+      );
+    }
     const path = u.pathname.length > 1 && u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
     let cut = path.lastIndexOf('/') + 1;
     if (cut > 1 && ID_SEGMENT.test(path.slice(cut))) cut = path.lastIndexOf('/', cut - 2) + 1;
@@ -145,6 +159,11 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
                     </button>
                   )}
                   {r.mocked && <span className="tag mock">mock</span>}
+                  {r.gqlErrors && (
+                    <span className="tag gqlerr" title={r.gqlErrors.join('\n')}>
+                      {r.gqlErrors.length} error{r.gqlErrors.length === 1 ? '' : 's'}
+                    </span>
+                  )}
                   {repeats && (
                     <span className="tag dup" title={`the same call ran ${repeats} times for this request`}>
                       ×{repeats}
@@ -155,7 +174,7 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
                       {calls.length} call{calls.length === 1 ? '' : 's'}
                     </span>
                   )}
-                  <UrlCell url={r.url} />
+                  <UrlCell url={r.url} gql={r.gql} />
                 </td>
                 <td>
                   <StatusBadge r={r} />

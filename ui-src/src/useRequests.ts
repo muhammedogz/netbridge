@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { DEFAULT_BUFFER_LIMIT, MAX_ENTRIES, entrySize, mergeEvent } from '../../src/protocol';
+import { DEFAULT_BUFFER_LIMIT, MAX_ENTRIES, entrySize, graphqlFields, mergeEvent } from '../../src/protocol';
 import type { MockRule } from '../../src/protocol';
 import type { CapturedRequest, WireEvent } from './types';
 
@@ -9,6 +9,14 @@ import type { CapturedRequest, WireEvent } from './types';
  * the client map (and the un-virtualized table) without bound. The oldest
  * rows, which a fresh snapshot would also have dropped, go first.
  */
+/** Fill in what the UI derives from an entry's bodies (GraphQL operations, errors). */
+function derive(r: CapturedRequest): void {
+  if (!r.method || !r.url) return;
+  const { gql, gqlErrors } = graphqlFields(r);
+  r.gql = gql;
+  r.gqlErrors = gqlErrors;
+}
+
 function trim(map: Map<string, CapturedRequest>, limit: number): void {
   let bytes = 0;
   for (const r of map.values()) bytes += entrySize(r);
@@ -57,7 +65,10 @@ export function useRequests(bufferLimit = DEFAULT_BUFFER_LIMIT): RequestsState {
   const applyEvent = useCallback((e: WireEvent) => {
     const map = mapRef.current;
     const existing = map.get(e.id) ?? ({ id: e.id, seq: ++seqRef.current } as CapturedRequest);
-    map.set(e.id, mergeEvent(existing, e));
+    const merged = mergeEvent(existing, e);
+    // Bodies come with the start (request) and the end (response) events.
+    if (e.reqBody !== undefined || e.resBody !== undefined || e.phase === 'start') derive(merged);
+    map.set(e.id, merged);
   }, []);
 
   useEffect(() => {
@@ -78,11 +89,13 @@ export function useRequests(bufferLimit = DEFAULT_BUFFER_LIMIT): RequestsState {
       })[];
       for (const r of list) {
         const existing = mapRef.current.get(r.id);
-        mapRef.current.set(r.id, {
+        const entry: CapturedRequest = {
           ...(r as CapturedRequest),
           seq: existing?.seq ?? ++seqRef.current,
           state: (r.state as CapturedRequest['state']) ?? 'pending',
-        });
+        };
+        if (entry.method && entry.url) derive(entry);
+        mapRef.current.set(r.id, entry);
       }
       schedulePublish();
     });

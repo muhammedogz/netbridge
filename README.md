@@ -89,6 +89,12 @@ Each call's time splits in two: waiting until the response headers came in (time
 
 A response whose body is still coming after 100 ms shows up early, with its status and headers, and finishes when the last byte is in. That's how an LLM call looks while it streams. The detail pane's **timing** strip draws one tick per piece of the body as it came off the wire. A `text/event-stream` body opens as a list of events, with the raw text one click away. For Anthropic and OpenAI streams it also puts the streamed text back together from the deltas, so you can read what the model said.
 
+## GraphQL
+
+Every GraphQL call goes to the same `/graphql` url, so the list names each call by its operation instead: `query GetUser`, `mutation AddOrder`, a batch as its first operation plus a count. netbridge reads the operation from the request body (or a GET's `?query=`), persisted queries included, and `op:GetUser` in the filter box finds it.
+
+GraphQL servers answer 200 even when an operation fails, and put the failure in an `errors` array. netbridge reads that array and marks the call with a red **errors** tag, so a failed mutation doesn't hide among the successes. The Request tab shows each operation's variables and query apart from the JSON around them.
+
 ## Tokens
 
 A 401 usually comes down to the token: expired, issued for another audience, or missing a scope. netbridge decodes the JWTs in each request's headers (`Authorization: Bearer …`, `Authorization: DPoP …`, a `DPoP` proof, or any header holding a bare JWT) and shows their claims on the Request tab: `iss`, `sub`, `aud`, `azp`, `scope`, and `exp` measured against the moment the call went out. A token that was already expired gets a red **token expired** badge on the call.
@@ -149,6 +155,7 @@ The filter box works like the Chrome DevTools network filter. Terms separated by
 | `method:post` | use that method |
 | `status:404` `status:4xx` | got that status (`x` is any digit). `status:error` and `status:pending` match failed and in-flight requests |
 | `source:http` | came from that source: `fetch`, `http`, `undici`, `inbound` (requests your server received) or `replay` |
+| `op:GetUser` `op:mutation` | sent a GraphQL operation with that name or type. `operation:` works too |
 
 A term with an unknown key is plain text, so `localhost:4318` needs no escaping. While a filter is active the counter next to the box reads `shown/total`. Hover it to see how many requests are hidden.
 

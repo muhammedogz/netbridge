@@ -91,7 +91,13 @@ function statusText(e: Pick<Entry, 'state' | 'status' | 'error'>): string {
 }
 
 function line(e: EntrySummary, extra = ''): string {
-  const tags = [e.source, e.mocked ? `mocked:${e.mocked}` : '', e.parentId ? `parent:${e.parentId}` : '']
+  const tags = [
+    e.source,
+    e.gql ? `graphql:${e.gql.join(',')}` : '',
+    e.gqlErrors ? `GRAPHQL-ERRORS:${e.gqlErrors.length}` : '',
+    e.mocked ? `mocked:${e.mocked}` : '',
+    e.parentId ? `parent:${e.parentId}` : '',
+  ]
     .filter(Boolean)
     .join(' ');
   const ms = e.durationMs != null ? `${e.durationMs}ms` : '';

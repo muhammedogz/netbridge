@@ -175,7 +175,15 @@ export type EntrySummary = Pick<
   | 'parentId'
   | 'mocked'
   | 'replayOf'
-> & { resBodySize?: number; /** See callKey(). */ key: string };
+> & {
+  resBodySize?: number;
+  /** See callKey(). */
+  key: string;
+  /** GraphQL operations, see graphqlOperations(). */
+  gql?: string[];
+  /** Messages of the GraphQL errors in the response, see graphqlErrors(). */
+  gqlErrors?: string[];
+};
 
 export function summarize(e: Entry): EntrySummary {
   return {
@@ -197,7 +205,16 @@ export function summarize(e: Entry): EntrySummary {
     resBodySize:
       e.resBody == null ? undefined : e.resBodyEncoding === 'base64' ? Math.floor((e.resBody.length * 3) / 4) : e.resBody.length,
     key: callKey(e),
+    ...graphqlFields(e),
   };
+}
+
+/** `gql` and `gqlErrors` for a GraphQL call; nothing for any other. */
+export function graphqlFields(e: Partial<Entry> & Pick<Entry, 'method' | 'url'>): Pick<EntrySummary, 'gql' | 'gqlErrors'> {
+  const gql = graphqlOperations(e);
+  if (!gql) return {};
+  const gqlErrors = graphqlErrors(e);
+  return gqlErrors ? { gql, gqlErrors } : { gql };
 }
 
 /** Approximate retained size of an entry: its bodies, headers and url. */
@@ -475,4 +492,72 @@ export function tokensInHeaders(headers: Record<string, unknown> | undefined | n
 export function claimTime(claims: Record<string, unknown>, name: 'exp' | 'iat' | 'nbf'): number | undefined {
   const v = claims[name];
   return typeof v === 'number' && Number.isFinite(v) ? v * 1000 : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// GraphQL. Every operation goes to one url, so the list names calls by
+// their operation instead (`query GetUser`). Detection reads the request:
+// a JSON body with a `query` string (or a persisted query), or a GET with
+// `?query=`; a batch is an array of those.
+// ---------------------------------------------------------------------------
+
+type GraphqlRequest = { query?: unknown; operationName?: unknown; extensions?: unknown };
+
+function operationLabel(op: GraphqlRequest): string | null {
+  const query = typeof op.query === 'string' ? op.query : undefined;
+  const persisted = !!(op.extensions as { persistedQuery?: unknown } | undefined)?.persistedQuery;
+  if (!query && !(persisted && typeof op.operationName === 'string')) return null;
+  const name = typeof op.operationName === 'string' && op.operationName ? op.operationName : undefined;
+  const doc = (query ?? '').replace(/#[^\n]*/g, '');
+  // The named operation's own keyword, else the document's first one.
+  const def = name
+    ? new RegExp(`\\b(query|mutation|subscription)\\s+${name}\\b`).exec(doc)
+    : /\b(query|mutation|subscription)\b\s*([_A-Za-z]\w*)?/.exec(doc);
+  const type = def?.[1] ?? 'query';
+  const opName = name ?? def?.[2];
+  return opName ? `${type} ${opName}` : `${type} (anonymous)`;
+}
+
+/** The GraphQL operations a call sent (`query GetUser`), or undefined for other calls. */
+export function graphqlOperations(
+  e: Pick<Entry, 'method' | 'url' | 'reqBody' | 'reqBodyEncoding'>
+): string[] | undefined {
+  try {
+    if (e.method === 'GET') {
+      if (!e.url.includes('query=')) return undefined;
+      const p = new URL(e.url).searchParams;
+      const label = operationLabel({ query: p.get('query') ?? undefined, operationName: p.get('operationName') ?? undefined });
+      return label ? [label] : undefined;
+    }
+    const body = e.reqBody;
+    if (body == null || e.reqBodyEncoding === 'base64' || !/"(query|persistedQuery)"/.test(body)) return undefined;
+    const parsed = JSON.parse(body) as GraphqlRequest | GraphqlRequest[];
+    const labels = (Array.isArray(parsed) ? parsed : [parsed])
+      .map((op) => (op && typeof op === 'object' ? operationLabel(op) : null))
+      .filter((l): l is string => l !== null);
+    return labels.length ? labels : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * The `errors` a GraphQL response carried. GraphQL servers answer 200 even
+ * when an operation failed, so the status alone hides it.
+ */
+export function graphqlErrors(e: Pick<Entry, 'resBody' | 'resBodyEncoding'>): string[] | undefined {
+  const body = e.resBody;
+  if (body == null || e.resBodyEncoding === 'base64' || !body.includes('"errors"')) return undefined;
+  try {
+    const parsed = JSON.parse(body) as { errors?: unknown } | { errors?: unknown }[];
+    const errors = (Array.isArray(parsed) ? parsed : [parsed]).flatMap((r) => (Array.isArray(r?.errors) ? r.errors : []));
+    if (!errors.length) return undefined;
+    return errors.map((err) =>
+      err && typeof err === 'object' && typeof (err as { message?: unknown }).message === 'string'
+        ? (err as { message: string }).message
+        : JSON.stringify(err)
+    );
+  } catch {
+    return undefined;
+  }
 }

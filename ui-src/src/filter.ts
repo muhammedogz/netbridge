@@ -6,7 +6,7 @@
  *
  *   order_id             free text: url, method, status, source, headers, utf8 bodies
  *   -order_id            a leading "-" hides whatever the term matches
- *   host:localhost:4318  keyed: url, host, path, method, status, source
+ *   host:localhost:4318  keyed: url, host, path, method, status, source, op (GraphQL)
  *
  * Matching is case-insensitive. A term with an unknown key is plain text, so
  * `localhost:4318` needs no escaping. No input can throw, and terms still
@@ -16,7 +16,7 @@
  */
 import type { CapturedRequest } from './types';
 
-export type FilterKey = 'url' | 'host' | 'path' | 'method' | 'status' | 'source';
+export type FilterKey = 'url' | 'host' | 'path' | 'method' | 'status' | 'source' | 'op';
 
 export interface FilterTerm {
   /** Attribute the term is scoped to; null for free text. */
@@ -38,6 +38,8 @@ const KEYS = new Map<string, FilterKey>([
   ['status', 'status'],
   ['status-code', 'status'], // Chrome DevTools spelling
   ['source', 'source'],
+  ['op', 'op'],
+  ['operation', 'op'],
 ]);
 
 export function parseFilter(query: string): FilterTerm[] {
@@ -117,6 +119,10 @@ export function matchesFilter(r: CapturedRequest, terms: readonly FilterTerm[]):
         break;
       case 'source':
         hit = (r.source || '') === t.value;
+        break;
+      case 'op':
+        // A GraphQL operation: `op:getuser`, or `op:mutation` for its type.
+        hit = (r.gql ?? []).some((op) => op.toLowerCase().includes(t.value));
         break;
       default:
         hit = (hay ??= haystack(r)).includes(t.value);

@@ -5,6 +5,7 @@ import { displayBody, downloadBlob, downloadBody, headersText, resendRequest, ti
 import type { Tree } from '../tree';
 import { CopyButton } from './CopyButton';
 import { CopyMenu } from './CopyMenu';
+import { GraphqlErrors, GraphqlRequest } from './Graphql';
 import { MockEditor, draftFromEntry } from './Mocks';
 import { ResendDialog } from './ResendDialog';
 import { StatusBadge } from './StatusBadge';
@@ -256,6 +257,12 @@ export function DetailPane({
                 ran {repeats}× for this request
               </span>
             )}
+            {r.gql && <span className="badge gql">GraphQL {r.gql.join(', ')}</span>}
+            {r.gqlErrors && (
+              <span className="badge bad" title={r.gqlErrors.join('\n')}>
+                {r.gqlErrors.length} GraphQL error{r.gqlErrors.length === 1 ? '' : 's'}
+              </span>
+            )}
             {hasStaleToken(r) && (
               <span className="badge bad" title="a JWT in the request headers was expired or not valid yet: see the Request tab">
                 token expired
@@ -362,7 +369,9 @@ export function DetailPane({
             </>
           ) : (
             <>
+              {shownTab === 'response' && <GraphqlErrors r={r} />}
               {shownTab === 'response' && <TimingSection r={r} />}
+              {shownTab === 'request' && <GraphqlRequest r={r} />}
               {shownTab === 'request' && (
                 <TokensSection tokens={fromHeaders(r.reqTokens)} at={startedAt(r)} title="tokens" />
               )}

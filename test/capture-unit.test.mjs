@@ -11,7 +11,9 @@ import { ROOT } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildUrl } = require(path.join(ROOT, 'dist', 'capture', 'http.js'));
-const { mergeEvent, entrySize, decodeJwt, tokensInHeaders, claimTime } = require(path.join(ROOT, 'dist', 'protocol.js'));
+const { mergeEvent, entrySize, decodeJwt, tokensInHeaders, claimTime, graphqlOperations, graphqlErrors } = require(
+  path.join(ROOT, 'dist', 'protocol.js')
+);
 const { ChunkTimeline } = require(path.join(ROOT, 'dist', 'capture', 'shared.js'));
 
 describe('buildUrl', () => {
@@ -92,6 +94,39 @@ describe('JWTs', () => {
       ]
     );
     assert.equal(tokensInHeaders({ accept: '*/*' }), undefined);
+  });
+});
+
+describe('GraphQL', () => {
+  const post = (body) => ({ method: 'POST', url: 'https://api.test/graphql', reqBody: JSON.stringify(body) });
+
+  it('names operations', () => {
+    assert.deepEqual(graphqlOperations(post({ query: 'query GetUser($id: ID!) { user(id: $id) { id } }' })), ['query GetUser']);
+    assert.deepEqual(graphqlOperations(post({ query: '{ me { id } }' })), ['query (anonymous)']);
+    assert.deepEqual(graphqlOperations(post({ query: '# create\nmutation { addOrder { id } }' })), ['mutation (anonymous)']);
+    // operationName picks one of several, and its own keyword.
+    const doc = 'fragment F on User { id } query A { me { ...F } } mutation B { x }';
+    assert.deepEqual(graphqlOperations(post({ query: doc, operationName: 'B' })), ['mutation B']);
+    assert.deepEqual(graphqlOperations(post([{ query: 'query A { a }' }, { query: 'query B { b }' }])), ['query A', 'query B']);
+    assert.deepEqual(
+      graphqlOperations(post({ operationName: 'Cached', extensions: { persistedQuery: { version: 1, sha256Hash: 'x' } } })),
+      ['query Cached']
+    );
+    assert.deepEqual(
+      graphqlOperations({ method: 'GET', url: 'https://api.test/graphql?query=query%20Q%20%7Ba%7D' }),
+      ['query Q']
+    );
+  });
+
+  it('leaves other calls alone', () => {
+    assert.equal(graphqlOperations(post({ query: 42 })), undefined);
+    assert.equal(graphqlOperations(post({ search: 'query' })), undefined);
+    assert.equal(graphqlOperations({ method: 'GET', url: 'https://api.test/search?q=x' }), undefined);
+  });
+
+  it('reads the errors a 200 hides', () => {
+    assert.deepEqual(graphqlErrors({ resBody: '{"data":null,"errors":[{"message":"denied"},{"code":1}]}' }), ['denied', '{"code":1}']);
+    assert.equal(graphqlErrors({ resBody: '{"data":{"errors":1}}' }), undefined);
   });
 });
 

@@ -14,6 +14,9 @@ import * as dc from 'diagnostics_channel';
 import { currentParent, isInFetch } from './context';
 import {
   BodyCollector,
+  ChunkTimeline,
+  announceSlowBody,
+  chunkSize,
   decompressBody,
   emit,
   encodeBody,
@@ -34,6 +37,9 @@ interface State {
   status?: number;
   statusText?: string;
   resHeaders?: Record<string, string>;
+  ttfbMs?: number;
+  timeline: ChunkTimeline;
+  cancelAnnounce?: () => void;
 }
 
 const states = new WeakMap<object, State>();
@@ -75,14 +81,16 @@ function onCreate({ request }: { request: any }): void {
   const method = String(request.method || 'GET').toUpperCase();
   // WebSocket handshakes and proxy tunnels never complete like a request.
   if (request.upgrade || method === 'CONNECT') return;
+  const start = Date.now();
   const state: State = {
     id: nextId(),
-    start: Date.now(),
+    start,
     method,
     url,
     bodyKnown: false,
     reqBody: new BodyCollector(),
     resBody: new BodyCollector(),
+    timeline: new ChunkTimeline(start),
   };
   if (typeof request.body === 'string' || request.body instanceof Uint8Array) {
     state.reqBody.push(request.body);
@@ -108,6 +116,7 @@ function onCreate({ request }: { request: any }): void {
 
 function finish(request: object, state: State, phase: 'end' | 'error', error?: string): void {
   states.delete(request);
+  state.cancelAnnounce?.();
   const sent = state.bodyKnown ? {} : body(state.reqBody);
   const received = body(state.resBody, state.resHeaders?.['content-encoding']);
   emit({
@@ -128,6 +137,8 @@ function finish(request: object, state: State, phase: 'end' | 'error', error?: s
     resBodyEncoding: received.encoding,
     resBodyTruncated: received.truncated,
     durationMs: Date.now() - state.start,
+    ttfbMs: state.ttfbMs,
+    resChunks: state.timeline.value(),
     error,
   });
 }
@@ -160,9 +171,26 @@ export function patchUndici(): void {
     state.status = response.statusCode;
     state.statusText = response.statusText;
     state.resHeaders = parseHeaders(response.headers);
+    state.ttfbMs = Date.now() - state.start;
+    state.cancelAnnounce = announceSlowBody({
+      id: state.id,
+      phase: 'response',
+      ts: state.start,
+      pid: process.pid,
+      source: 'undici',
+      method: state.method,
+      url: state.url,
+      status: state.status,
+      statusText: state.statusText,
+      resHeaders: sanitizeHeaders(state.resHeaders),
+      ttfbMs: state.ttfbMs,
+    });
   });
   subscribe('undici:request:bodyChunkReceived', ({ request, chunk }) => {
-    states.get(request)?.resBody.push(chunk);
+    const state = states.get(request);
+    if (!state) return;
+    state.timeline.add(chunkSize(chunk));
+    state.resBody.push(chunk);
   });
   subscribe('undici:request:trailers', ({ request }) => {
     const state = states.get(request);

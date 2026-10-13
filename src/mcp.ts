@@ -121,6 +121,17 @@ function headerLines(h?: Record<string, string>): string {
   return lines.length ? lines.join('\n') : '(none)';
 }
 
+/** Waiting for the headers vs the body, and how a body in pieces arrived. */
+function timing(e: Entry): string {
+  if (e.ttfbMs == null) return '';
+  const body = e.durationMs != null ? `, body ${e.durationMs - e.ttfbMs} ms` : ', body still arriving';
+  const chunks = e.resChunks;
+  const pieces = chunks?.length
+    ? `; body came in ${chunks.length} pieces, first after ${chunks[0][0]} ms, last after ${chunks[chunks.length - 1][0]} ms`
+    : '';
+  return `timing: waiting for headers ${e.ttfbMs} ms${body}${pieces}`;
+}
+
 function describe(e: Entry, max: number): string {
   const head = [
     `${e.method} ${e.url}`,
@@ -129,6 +140,7 @@ function describe(e: Entry, max: number): string {
     e.parentId ? `made while handling inbound request ${e.parentId} (see get_call_tree)` : '',
     e.mocked ? `answered by mock rule ${e.mocked}` : '',
     e.replayOf ? `replay of ${e.replayOf}` : '',
+    timing(e),
   ].filter(Boolean);
   return [
     head.join('\n'),

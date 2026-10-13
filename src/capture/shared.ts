@@ -197,6 +197,56 @@ export function emit(event: NetbridgeEvent): void {
   send(event);
 }
 
+/** A body still arriving this long after its headers is worth showing early. */
+const SLOW_BODY_MS = 100;
+
+/**
+ * Emit `event` (a `response` phase: status and headers, body still coming)
+ * unless the returned cancel runs first, when the body finishes. Fast calls
+ * stay at two events; a stream shows up with its status while it runs.
+ */
+export function announceSlowBody(event: NetbridgeEvent): () => void {
+  const timer = setTimeout(() => emit(event), SLOW_BODY_MS);
+  timer.unref?.();
+  return () => clearTimeout(timer);
+}
+
+/** Byte length of a stream chunk (a Buffer, a Uint8Array or a string). */
+export function chunkSize(chunk: unknown): number {
+  if (typeof chunk === 'string') return Buffer.byteLength(chunk);
+  if (chunk instanceof Uint8Array) return chunk.byteLength;
+  return 0;
+}
+
+const MAX_CHUNK_POINTS = 200;
+
+/** When each piece of a response body arrived; see `resChunks`. */
+export class ChunkTimeline {
+  private points: [number, number][] = [];
+
+  constructor(private readonly start: number) {}
+
+  add(bytes: number): void {
+    if (!(bytes > 0)) return;
+    this.points.push([Date.now() - this.start, bytes]);
+    if (this.points.length <= MAX_CHUNK_POINTS) return;
+    // Halve the resolution: merge neighbours into the later one's time. The
+    // first piece stays as it is, since when the body began matters most.
+    const merged: [number, number][] = [this.points[0]];
+    for (let i = 1; i < this.points.length; i += 2) {
+      const a = this.points[i];
+      const b = this.points[i + 1];
+      merged.push(b ? [b[0], a[1] + b[1]] : a);
+    }
+    this.points = merged;
+  }
+
+  /** The points, for a body that came in more than one piece. */
+  value(): [number, number][] | undefined {
+    return this.points.length > 1 ? this.points : undefined;
+  }
+}
+
 /**
  * Queue a line for /ingest: a capture event, or a message such as
  * `{ kind: 'listen' }` that the collector handles on its own.

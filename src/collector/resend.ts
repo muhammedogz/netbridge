@@ -2,7 +2,7 @@
  * Request replay (POST /api/resend): validates a resend payload against the
  * captured entry it refers to, then re-issues it from the collector process.
  */
-import { BodyCollector, encodeBody, nextId, sanitizeHeaders } from '../capture/shared';
+import { BodyCollector, ChunkTimeline, chunkSize, encodeBody, nextId, sanitizeHeaders } from '../capture/shared';
 import { REDACTED } from '../protocol';
 import type { BodyEncoding, Entry, NetbridgeEvent } from '../protocol';
 
@@ -157,9 +157,12 @@ export async function executeResend(spec: ResendSpec, record: (e: NetbridgeEvent
       redirect: 'manual',
       signal: AbortSignal.timeout(RESEND_TIMEOUT_MS),
     });
+    const ttfbMs = Date.now() - started;
+    const timeline = new ChunkTimeline(started);
     const bodyCollector = new BodyCollector();
     if (res.body) {
       for await (const chunk of res.body) {
+        timeline.add(chunkSize(chunk));
         bodyCollector.push(chunk);
         if (bodyCollector.truncated) break; // break auto-cancels the stream
       }
@@ -175,6 +178,8 @@ export async function executeResend(spec: ResendSpec, record: (e: NetbridgeEvent
       ...(encoded ? { resBody: encoded.body, resBodyEncoding: encoded.encoding } : {}),
       ...(bodyCollector.truncated ? { resBodyTruncated: true } : {}),
       durationMs: Date.now() - started,
+      ttfbMs,
+      resChunks: timeline.value(),
     });
   } catch (err) {
     const cause = (err as { cause?: { code?: string; message?: string } })?.cause;

@@ -16,6 +16,9 @@ import { currentParent } from './context';
 import { mockFor } from './mocks';
 import {
   BodyCollector,
+  ChunkTimeline,
+  announceSlowBody,
+  chunkSize,
   config,
   decompressBody,
   emit,
@@ -154,11 +157,29 @@ function instrument(req: httpType.ClientRequest, url: string, method: string, ru
     emitStart();
     const resBody = new BodyCollector();
     const headersSnapshot = { ...res.headers } as Record<string, unknown>;
+    const ttfbMs = Date.now() - start;
+    const timeline = new ChunkTimeline(start);
+    const cancelAnnounce = announceSlowBody({
+      id,
+      phase: 'response',
+      ts: start,
+      pid: process.pid,
+      source: 'http',
+      method,
+      url,
+      status: res.statusCode,
+      statusText: res.statusMessage,
+      resHeaders: sanitizeHeaders(headersSnapshot),
+      ttfbMs,
+    });
 
     // Tee data without disturbing stream state.
     const origEmit = res.emit.bind(res);
     res.emit = function (event: string | symbol, ...eventArgs: any[]) {
-      if (event === 'data') resBody.push(eventArgs[0]);
+      if (event === 'data') {
+        timeline.add(chunkSize(eventArgs[0]));
+        resBody.push(eventArgs[0]);
+      }
       if (event === 'end') finalize();
       return origEmit(event as any, ...eventArgs);
     } as typeof res.emit;
@@ -167,6 +188,7 @@ function instrument(req: httpType.ClientRequest, url: string, method: string, ru
     const finalize = () => {
       if (finalized) return;
       finalized = true;
+      cancelAnnounce();
       let encoded: { body: string; encoding: 'utf8' | 'base64' } | undefined;
       const truncated = resBody.truncated;
       if (!resBody.isEmpty) {
@@ -192,6 +214,8 @@ function instrument(req: httpType.ClientRequest, url: string, method: string, ru
         resBodyEncoding: encoded?.encoding,
         resBodyTruncated: truncated || undefined,
         durationMs: Date.now() - start,
+        ttfbMs,
+        resChunks: timeline.value(),
       });
     };
 

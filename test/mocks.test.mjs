@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { FIXTURES, runCli, startOrigin, waitFor } from './helpers.mjs';
+import { FIXTURES, runCli, settled, startOrigin, waitFor } from './helpers.mjs';
 
 const json = (body, method = 'POST') => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
@@ -99,12 +99,22 @@ describe('mock rules', () => {
 
   it('delays calls with a delay rule and still reaches the backend', async () => {
     await fetch(`${nb.base}/api/mocks`, json({ id: 'slow', method: 'get', url: '/json', delayMs: 300 }));
-    // The rule list reaches the app process over its stream; give it a beat.
-    await new Promise((r) => setTimeout(r, 200));
-    const t0 = Date.now();
-    assert.equal(await (await fetch(`${app}/page`)).text(), 'page done');
+    // The rule list reaches the app process over its stream: time a page
+    // whose three calls all carry the rule, so all three were held back.
+    const elapsed = await waitFor(
+      async () => {
+        const t0 = Date.now();
+        assert.equal(await (await fetch(`${app}/page`)).text(), 'page done');
+        const ms = Date.now() - t0;
+        const list = await nb.waitForRequests((l) => l.every(settled), 'calls settled');
+        const page = list.filter((e) => e.source === 'inbound' && e.url.endsWith('/page')).pop();
+        const calls = list.filter((e) => e.parentId === page?.id);
+        return calls.length === 3 && calls.every((c) => c.mocked === 'slow') ? ms : null;
+      },
+      { label: 'a /page whose calls all met the delay rule' }
+    );
     // Three calls in sequence, each held back 300 ms.
-    assert.ok(Date.now() - t0 >= 850, `took ${Date.now() - t0} ms`);
+    assert.ok(elapsed >= 850, `took ${elapsed} ms`);
   });
 
   it('mocks a POST that carries an Origin header', async () => {

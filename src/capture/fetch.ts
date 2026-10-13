@@ -14,6 +14,8 @@ import { currentParent, runInFetch } from './context';
 import { mockFor, mocksReady } from './mocks';
 import {
   BodyCollector,
+  ChunkTimeline,
+  announceSlowBody,
   config,
   emit,
   encodeBody,
@@ -173,15 +175,22 @@ function isRequest(input: unknown): input is Request {
 }
 
 function captureResponseBody(response: Response, id: string, base: Record<string, unknown>, start: number): void {
+  const cancelAnnounce = announceSlowBody({ ...(base as any), id, phase: 'response', ts: start });
+  const timeline = new ChunkTimeline(start);
   // durationMs runs until the body is done, as in the http wrapper: time to
   // headers alone made a slow download look fast.
-  const done = () => ({ ...(base as any), id, phase: 'end' as const, ts: Date.now(), durationMs: Date.now() - start });
+  const done = () => {
+    cancelAnnounce();
+    const now = Date.now();
+    return { ...(base as any), id, phase: 'end' as const, ts: now, durationMs: now - start, resChunks: timeline.value() };
+  };
   const finishEmpty = () => emit(done());
   const finish = (collector: BodyCollector) => {
     if (collector.isEmpty) return finishEmpty();
+    const end = done();
     const { body, encoding } = encodeBody(collector.buffer());
     emit({
-      ...done(),
+      ...end,
       resBody: body,
       resBodyEncoding: encoding,
       resBodyTruncated: collector.truncated || undefined,
@@ -206,6 +215,7 @@ function captureResponseBody(response: Response, id: string, base: Record<string
     const pump = (): Promise<void> =>
       reader.read().then(({ done, value }) => {
         if (done) return finish(collector);
+        timeline.add(value?.byteLength ?? 0);
         collector.push(value);
         if (collector.truncated) {
           reader.cancel().catch(() => {});
@@ -355,6 +365,7 @@ export function patchFetch(): void {
         status: response.status,
         statusText: response.statusText,
         resHeaders: sanitizeHeaders(headersToObject(response.headers)),
+        ttfbMs: Date.now() - start,
       };
       captureResponseBody(response, id, base, start);
       return response;

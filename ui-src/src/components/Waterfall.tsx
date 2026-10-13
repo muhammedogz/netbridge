@@ -1,10 +1,18 @@
 import { callSteps, startedAt } from '../../../src/protocol';
 import { statusClassOf } from '../filter';
+import { timingTitle } from '../lib';
 import type { Tree } from '../tree';
 import type { CapturedRequest } from '../types';
 import { UrlCell } from './RequestTable';
 
 const BAR_CLASS: Record<string, string> = { '2xx': 's2', '3xx': 's3', '4xx': 's4', '5xx': 's5', error: 's5' };
+
+/** Share of a call's bar spent waiting for the response headers, in %. */
+function waitShare(c: CapturedRequest, end: number): number | null {
+  const total = end - startedAt(c);
+  if (c.ttfbMs == null || total <= 0) return null;
+  return Math.min(100, (c.ttfbMs / total) * 100);
+}
 
 /**
  * The calls one inbound request made, on a shared time axis: the request
@@ -76,7 +84,12 @@ export function Waterfall({
                 <span
                   className={`wf-bar ${BAR_CLASS[cls ?? ''] ?? 'pending'}`}
                   style={{ left: pct(startedAt(c) - origin), width: `max(2px, ${pct(endOf(c) - startedAt(c))})` }}
-                />
+                  title={timingTitle(c)}
+                >
+                  {waitShare(c, endOf(c)) != null && (
+                    <span className="wf-wait" style={{ width: `${waitShare(c, endOf(c))}%` }} />
+                  )}
+                </span>
               </span>
               <span className="wf-ms">{c.durationMs != null ? `${c.durationMs} ms` : ''}</span>
             </button>

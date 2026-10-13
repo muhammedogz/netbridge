@@ -45,6 +45,10 @@ const routes = {
       return `failed: ${err.cause?.message ?? err.message}`;
     }
   },
+  // A body that trickles in over ~1s: shows up early, status first.
+  async '/stream'() {
+    return (await fetchText(`${target}/slow`)).body;
+  },
   async '/undici'() {
     const undici = require('undici');
     const res = await undici.request(`${target}/json?via=undici`);

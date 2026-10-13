@@ -1,5 +1,5 @@
 import { useLayoutEffect, useRef, useState } from 'react';
-import { fmtSize } from '../lib';
+import { fmtSize, timingTitle } from '../lib';
 import type { Row, Tree } from '../tree';
 import { StatusBadge } from './StatusBadge';
 
@@ -160,7 +160,9 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
                 <td>
                   <StatusBadge r={r} />
                 </td>
-                <td className="c-time">{r.durationMs != null ? `${r.durationMs} ms` : ''}</td>
+                <td className="c-time" title={timingTitle(r)}>
+                  {r.durationMs != null ? `${r.durationMs} ms` : ''}
+                </td>
                 <td className="c-size">{fmtSize(r.resBody, r.resBodyEncoding)}</td>
                 <td className="src c-via">
                   {r.source || ''}

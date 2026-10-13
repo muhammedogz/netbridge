@@ -43,6 +43,8 @@ Reading entries:
 - `parentId` links a call to the `inbound` entry it was made for. `GET /api/requests?parent=<inbound id>` lists one page render's calls. An inbound request appears only once it made an outbound call.
 - Bodies are decoded (gzip/br/deflate). Binary bodies are base64 (`reqBodyEncoding` / `resBodyEncoding: "base64"`); bodies over the cap set `reqBodyTruncated` / `resBodyTruncated`. Redacted header values read `«redacted»`.
 - `mocked` names the mock rule that answered the call instead of the backend.
+- `ttfbMs` is the wait until the response headers came in; `durationMs` runs until the body was done. A long `ttfbMs` points at the server, a long gap after it at a big or streamed body.
+- `resChunks` lists when a body that came in pieces arrived, as `[ms since start, bytes]`. A `pending` entry that already has a `status` is still receiving its body: a stream such as an LLM response.
 
 Query options for `/api/requests`: `parent=`, `source=`, `since=<epoch ms>`, `limit=<newest n>`, `summary=1` (no headers or bodies; use it first, then fetch single entries).
 

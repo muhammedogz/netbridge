@@ -169,6 +169,8 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .wf-bar.s2 { background: var(--green); } .wf-bar.s3 { background: var(--purple); }
 .wf-bar.s4 { background: var(--yellow); } .wf-bar.s5 { background: var(--red); }
 .wf-bar.pending { background: var(--accent); animation: pulse 1.2s infinite; }
+/* the part of a bar spent waiting for the response headers */
+.wf-wait { position: absolute; left: 0; top: 0; bottom: 0; border-radius: 3px 0 0 3px; background: var(--bg); opacity: 0.55; }
 
 /* mock rules */
 .mock-list { display: flex; flex-direction: column; gap: 4px; }
@@ -212,3 +214,16 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .snippet pre { flex: 1; margin: 0; max-height: none; }
 .agent-api { align-items: center; margin-top: 0; }
 .agent-api a { color: var(--accent); font-size: 12px; margin-right: auto; }
+
+/* response timing and streamed bodies */
+.timing-line { display: flex; flex-wrap: wrap; gap: 4px 14px; color: var(--fg-dim); font-size: 11px; }
+.chunk-strip { display: block; width: 100%; height: 34px; margin-top: 6px; background: var(--bg); border: 1px solid var(--border); border-radius: 4px; overflow: visible; }
+.chunk-strip .chunk-wait { fill: var(--fg-dim); opacity: 0.15; }
+.chunk-strip .chunk { fill: var(--accent); }
+.sse-switch { display: flex; gap: 4px; margin: 4px 0 6px; }
+.sse-switch .on { border-color: var(--accent); color: var(--accent); }
+.sse-text pre { max-height: 240px; }
+.sse-events { border: 1px solid var(--border); border-radius: 6px; max-height: 420px; overflow-y: auto; background: var(--bg); }
+.sse-event { display: grid; grid-template-columns: minmax(70px, max-content) 1fr; gap: 10px; padding: 3px 8px; border-bottom: 1px solid var(--row-border); font-size: 11px; }
+.sse-name { color: var(--purple); white-space: nowrap; }
+.sse-data { color: var(--code); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -2,7 +2,7 @@
 import { DEFAULT_BUFFER_LIMIT, MAX_ENTRIES, entrySize, mergeEvent } from '../protocol';
 import type { Entry, NetbridgeEvent } from '../protocol';
 
-const PHASES = new Set(['start', 'end', 'error']);
+const PHASES = new Set(['start', 'response', 'end', 'error']);
 
 /** True for an object that can be folded into the table. */
 export function isEvent(value: unknown): value is NetbridgeEvent {

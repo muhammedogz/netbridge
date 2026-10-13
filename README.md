@@ -83,6 +83,12 @@ There's nothing to set up. The preload follows each request handler through `awa
 
 Work right after the response, such as Next's `after()` or a log flush, still counts toward the request. A call that starts more than 2 s after the response and after the request's last call doesn't. Without that cutoff, an OpenTelemetry batch export would land under whichever request first started the exporter's timer.
 
+## Timing and streams
+
+Each call's time splits in two: waiting until the response headers came in (time to first byte), then the body. The waterfall draws the waiting part of each bar lighter, and the time column's tooltip gives both numbers. A slow call with a long wait means a slow server; a short wait and a long body means a big or streamed download.
+
+A response whose body is still coming after 100 ms shows up early, with its status and headers, and finishes when the last byte is in. That's how an LLM call looks while it streams. The detail pane's **timing** strip draws one tick per piece of the body as it came off the wire. A `text/event-stream` body opens as a list of events, with the raw text one click away. For Anthropic and OpenAI streams it also puts the streamed text back together from the deltas, so you can read what the model said.
+
 ## Mocking backends
 
 A mock rule answers the app's outbound calls in place of the backend, with a canned response, a delay or a network failure. Reach for it when the backend doesn't exist yet, is down, or you need to see its error path. The app doesn't change, and a rule applies to the next call, even in a dev server that's already running.

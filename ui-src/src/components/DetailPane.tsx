@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 import { REDACTED } from '../../../src/protocol';
 import type { CapturedRequest } from '../types';
-import { displayBody, downloadBlob, downloadBody, headersText, resendRequest } from '../lib';
+import { displayBody, downloadBlob, downloadBody, headersText, resendRequest, timingTitle } from '../lib';
 import type { Tree } from '../tree';
 import { CopyButton } from './CopyButton';
 import { CopyMenu } from './CopyMenu';
 import { MockEditor, draftFromEntry } from './Mocks';
 import { ResendDialog } from './ResendDialog';
 import { StatusBadge } from './StatusBadge';
+import { SseBody, TimingSection } from './Stream';
 import { Waterfall } from './Waterfall';
 
 type Kind = 'response' | 'request';
@@ -110,7 +111,11 @@ function BodySection({ r, kind }: { r: CapturedRequest; kind: Kind }) {
           <>
             {encoding === 'base64' && <span className="badge">binary · base64</span>}
             {truncated && <span className="badge">truncated</span>}
-            <pre>{text}</pre>
+            {isRes && encoding !== 'base64' && /text\/event-stream/i.test(headers?.['content-type'] ?? '') ? (
+              <SseBody text={body} />
+            ) : (
+              <pre>{text}</pre>
+            )}
           </>
         )}
       </div>
@@ -217,7 +222,11 @@ export function DetailPane({
           </h2>
           <div>
             <StatusBadge r={r} /> {r.statusText || ''}
-            {r.durationMs != null && <span className="badge">{r.durationMs} ms</span>}
+            {r.durationMs != null && (
+              <span className="badge" title={timingTitle(r)}>
+                {r.durationMs} ms
+              </span>
+            )}
             <span className="badge">{r.source || ''}</span>
             {r.pid != null && <span className="badge">pid {r.pid}</span>}
             {r.replayOf && (
@@ -343,7 +352,10 @@ export function DetailPane({
               <HeadersGrid headers={r.reqHeaders} />
             </div>
           ) : (
-            <BodySection r={r} kind={shownTab as Kind} />
+            <>
+              {shownTab === 'response' && <TimingSection r={r} />}
+              <BodySection r={r} kind={shownTab as Kind} />
+            </>
           )}
           {mocking && <MockEditor initial={draftFromEntry(r)} onClose={() => setMocking(false)} />}
           {editing && (

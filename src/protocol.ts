@@ -14,11 +14,15 @@ export type Source = 'fetch' | 'http' | 'undici' | 'replay' | 'inbound';
 export type BodyEncoding = 'utf8' | 'base64';
 export type EntryState = 'pending' | 'done' | 'error';
 
-/** One capture event. `start`, then `end` or `error`, share an id. */
+/**
+ * One capture event. `start`, then `end` or `error`, share an id. A body that
+ * takes a while to arrive (a stream) gets a `response` event in between, once
+ * its headers are in, so the entry shows its status while still pending.
+ */
 export interface NetbridgeEvent {
   /** Unique id shared between the start and end phase of one request. */
   id: string;
-  phase: 'start' | 'end' | 'error';
+  phase: 'start' | 'response' | 'end' | 'error';
   ts: number;
   pid: number;
   source: Source;
@@ -41,6 +45,14 @@ export interface NetbridgeEvent {
   resBodyEncoding?: BodyEncoding;
   resBodyTruncated?: boolean;
   durationMs?: number;
+  /** Time to first byte: ms from the start until the response headers arrived. */
+  ttfbMs?: number;
+  /**
+   * When the response body arrived, as [ms since the start, bytes] per piece
+   * (wire bytes, so compressed ones for a compressed body). Only for a body
+   * that came in more than one piece; long streams are merged down to 200.
+   */
+  resChunks?: [number, number][];
   error?: string;
 }
 
@@ -104,6 +116,8 @@ const EVENT_FIELDS: readonly (keyof Entry)[] = [
   'resBodyEncoding',
   'resBodyTruncated',
   'durationMs',
+  'ttfbMs',
+  'resChunks',
   'error',
 ];
 
@@ -118,6 +132,8 @@ export function mergeEvent<T extends { id: string; state?: EntryState }>(
   event: Partial<NetbridgeEvent> & { id: string }
 ): T {
   const target = (existing ?? { id: event.id }) as T;
+  // A `response` event that lands after the end adds nothing new.
+  if (event.phase === 'response' && (target.state === 'done' || target.state === 'error')) return target;
   const fields = target as unknown as Record<string, unknown>;
   for (const key of EVENT_FIELDS) {
     const value = event[key as keyof NetbridgeEvent];
@@ -131,7 +147,21 @@ export function mergeEvent<T extends { id: string; state?: EntryState }>(
 /** An entry without its headers and bodies: what lists and the overlay need. */
 export type EntrySummary = Pick<
   Entry,
-  'id' | 'ts' | 'pid' | 'source' | 'method' | 'url' | 'state' | 'status' | 'statusText' | 'durationMs' | 'error' | 'parentId' | 'mocked' | 'replayOf'
+  | 'id'
+  | 'ts'
+  | 'pid'
+  | 'source'
+  | 'method'
+  | 'url'
+  | 'state'
+  | 'status'
+  | 'statusText'
+  | 'durationMs'
+  | 'ttfbMs'
+  | 'error'
+  | 'parentId'
+  | 'mocked'
+  | 'replayOf'
 > & { resBodySize?: number; /** See callKey(). */ key: string };
 
 export function summarize(e: Entry): EntrySummary {
@@ -146,6 +176,7 @@ export function summarize(e: Entry): EntrySummary {
     status: e.status,
     statusText: e.statusText,
     durationMs: e.durationMs,
+    ttfbMs: e.ttfbMs,
     error: e.error,
     parentId: e.parentId,
     mocked: e.mocked,

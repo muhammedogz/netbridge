@@ -12,6 +12,7 @@ import { ROOT } from './helpers.mjs';
 const require = createRequire(import.meta.url);
 const { buildUrl } = require(path.join(ROOT, 'dist', 'capture', 'http.js'));
 const { mergeEvent, entrySize } = require(path.join(ROOT, 'dist', 'protocol.js'));
+const { ChunkTimeline } = require(path.join(ROOT, 'dist', 'capture', 'shared.js'));
 
 describe('buildUrl', () => {
   const cases = [
@@ -46,12 +47,36 @@ describe('mergeEvent', () => {
     assert.equal(e.status, 200);
   });
 
+  it('shows the status of a response still streaming, and ignores one that lands after the end', () => {
+    let e = mergeEvent(undefined, { id: 'r', phase: 'start', ts: 100, method: 'GET', url: 'http://x/' });
+    e = mergeEvent(e, { id: 'r', phase: 'response', ts: 100, status: 200, ttfbMs: 40 });
+    assert.equal(e.state, 'pending');
+    assert.equal(e.status, 200);
+    e = mergeEvent(e, { id: 'r', phase: 'end', ts: 900, status: 200, durationMs: 800, ttfbMs: 40 });
+    e = mergeEvent(e, { id: 'r', phase: 'response', ts: 100, status: 200, ttfbMs: 40 });
+    assert.equal(e.state, 'done');
+    assert.equal(e.ts, 900);
+  });
+
   it('keeps the error state and ignores unknown keys', () => {
     const e = mergeEvent(undefined, JSON.parse('{"id":"b","phase":"error","error":"x","__proto__":{"polluted":1},"junk":1}'));
     assert.equal(e.state, 'error');
     assert.equal(e.junk, undefined);
     assert.equal(e.polluted, undefined);
     assert.equal(Object.getPrototypeOf(e), Object.prototype);
+  });
+});
+
+describe('ChunkTimeline', () => {
+  it('merges a long stream down and keeps its first piece', () => {
+    const t = new ChunkTimeline(Date.now());
+    t.add(5);
+    assert.equal(t.value(), undefined, 'one piece is no timeline');
+    for (let i = 0; i < 1000; i++) t.add(1);
+    const points = t.value();
+    assert.ok(points.length <= 200, `${points.length} points`);
+    assert.equal(points[0][1], 5);
+    assert.equal(points.reduce((sum, [, bytes]) => sum + bytes, 0), 1005);
   });
 });
 

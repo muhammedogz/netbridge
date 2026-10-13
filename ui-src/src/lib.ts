@@ -430,6 +430,13 @@ export function formatRequestPrompt(r: CapturedRequest): string {
 // at the live collector API.
 // ---------------------------------------------------------------------------
 
+/** Tooltip splitting a call's time into waiting for headers and the body. */
+export function timingTitle(c: Pick<CapturedRequest, 'ttfbMs' | 'durationMs'>): string | undefined {
+  if (c.ttfbMs == null) return undefined;
+  const body = c.durationMs != null ? `, body ${c.durationMs - c.ttfbMs} ms` : ', body still arriving';
+  return `waiting for headers ${c.ttfbMs} ms${body}`;
+}
+
 export function agentApiInstructions(origin: string): string {
   return `netbridge — a server-side HTTP inspector — is running at ${origin}, live-capturing this app's outbound HTTP traffic: method, url, status, headers, full request/response bodies, timing and errors.
 
@@ -448,7 +455,7 @@ Mock the app's backends (no app change, takes effect immediately):
 
 Example: \`curl -s ${origin}/api/requests\` shows exactly what the server sent and received. Use it to verify outbound calls, inspect payloads, and diagnose failures (entries with state "error", or status >= 400).
 
-Reading entries: entries with source "inbound" are requests the app's server received; the calls it made while handling one carry parentId = that entry's id. mocked names the mock rule that answered. Bodies over the capture limit carry reqBodyTruncated/resBodyTruncated: true; binary bodies are base64 (reqBodyEncoding/resBodyEncoding: "base64"); sensitive header values (authorization, cookie, …) are redacted by default.
+Reading entries: ttfbMs is the wait until the response headers came in (durationMs runs until the body was done); resChunks lists when a body that came in pieces arrived, as [ms since start, bytes]. A pending entry that already has a status is still receiving its body (a stream). Entries with source "inbound" are requests the app's server received; the calls it made while handling one carry parentId = that entry's id. mocked names the mock rule that answered. Bodies over the capture limit carry reqBodyTruncated/resBodyTruncated: true; binary bodies are base64 (reqBodyEncoding/resBodyEncoding: "base64"); sensitive header values (authorization, cookie, …) are redacted by default.
 
 An MCP server with the same abilities: \`claude mcp add netbridge -- npx -y netbridge mcp\`.`;
 }
@@ -522,8 +529,12 @@ export function buildHar(requests: CapturedRequest[], version: string): object {
           bodySize: bodyBytes(r.resBody, r.resBodyEncoding),
         },
         cache: {},
-        // Only the total is known; the spec requires the parts to sum to time.
-        timings: { send: 0, wait: time, receive: 0 },
+        // The spec requires the parts to sum to time. Waiting runs until the
+        // headers came in; without that split, all of it counts as waiting.
+        timings:
+          r.ttfbMs != null && r.ttfbMs <= time
+            ? { send: 0, wait: r.ttfbMs, receive: time - r.ttfbMs }
+            : { send: 0, wait: time, receive: 0 },
       };
       if (r.state === 'error' && r.error) entry._error = r.error;
       if (r.state === 'pending') entry._state = 'pending';

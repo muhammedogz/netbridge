@@ -92,6 +92,27 @@ describe('inbound correlation', () => {
   });
 });
 
+describe('streaming responses', () => {
+  it('shows a call with its status while the body is still coming', async () => {
+    const done = fetch(`${app}/stream`).then((r) => r.text());
+    const live = await waitFor(
+      async () => {
+        const list = await nb.requests();
+        return list.find((e) => e.url.endsWith('/slow') && e.state === 'pending' && e.status === 200);
+      },
+      { label: 'a pending /slow entry with its status', timeoutMs: 5000, intervalMs: 50 }
+    );
+    assert.equal(typeof live.ttfbMs, 'number');
+    assert.equal(live.resHeaders['content-type'], 'text/plain');
+    assert.equal(await done, 'xxxxxxxxxx');
+    const list = await nb.waitForRequests((l) => l.some((e) => e.id === live.id && settled(e)), 'the /slow call settled');
+    const ended = list.find((e) => e.id === live.id);
+    assert.equal(ended.state, 'done');
+    // The entry keeps its start time: ts is the end once settled.
+    assert.ok(ended.ts - ended.durationMs <= live.ts + 1);
+  });
+});
+
 describe('calls after the response', () => {
   it('keeps a call made right away and drops one from a much later timer', async () => {
     assert.equal(await (await fetch(`${app}/later`)).text(), 'sent');

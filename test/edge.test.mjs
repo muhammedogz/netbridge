@@ -53,6 +53,23 @@ describe('timing', () => {
     assert.ok(f.durationMs >= 800, `fetch durationMs ${f.durationMs}`);
     assert.ok(h.durationMs >= 800, `http durationMs ${h.durationMs}`);
   });
+
+  it('records time to first byte and when each piece of the body came', () => {
+    for (const r of [byCase('slow-fetch'), byCase('slow-http')]) {
+      assert.equal(typeof r.ttfbMs, 'number', `${r.source} ttfbMs`);
+      assert.ok(r.ttfbMs < r.durationMs - 500, `${r.source}: ttfb ${r.ttfbMs} of ${r.durationMs}`);
+      // Ten one-byte writes, 100 ms apart.
+      assert.ok(r.resChunks.length >= 5, `${r.source}: ${r.resChunks.length} pieces`);
+      assert.equal(
+        r.resChunks.reduce((sum, [, bytes]) => sum + bytes, 0),
+        10
+      );
+      const [first] = r.resChunks;
+      const last = r.resChunks[r.resChunks.length - 1];
+      assert.ok(last[0] - first[0] >= 600, `${r.source}: pieces span ${last[0] - first[0]} ms`);
+      assert.ok(last[0] <= r.durationMs);
+    }
+  });
 });
 
 describe('Request bodies', () => {

@@ -1,5 +1,7 @@
 import { useLayoutEffect, useRef, useState } from 'react';
 import { fmtSize, timingTitle } from '../lib';
+import type { InboundKind } from '../../../src/protocol';
+import type { CapturedRequest } from '../types';
 import type { Row, Tree } from '../tree';
 import { StatusBadge } from './StatusBadge';
 
@@ -25,6 +27,8 @@ export function UrlCell({ url, gql }: { url: string; gql?: string[] }) {
         </>
       );
     }
+    // Next.js tags each client-side navigation with a cache-busting _rsc.
+    u.searchParams.delete('_rsc');
     const path = u.pathname.length > 1 && u.pathname.endsWith('/') ? u.pathname.slice(0, -1) : u.pathname;
     let cut = path.lastIndexOf('/') + 1;
     if (cut > 1 && ID_SEGMENT.test(path.slice(cut))) cut = path.lastIndexOf('/', cut - 2) + 1;
@@ -38,6 +42,34 @@ export function UrlCell({ url, gql }: { url: string; gql?: string[] }) {
   } catch {
     return <>{url}</>;
   }
+}
+
+export const KIND_TITLE: Record<InboundKind, string> = {
+  page: 'a full page load',
+  navigation: 'a client-side navigation: the RSC payload of the next page',
+  prefetch: 'a prefetch of a page the user may open next',
+  action: 'a server action call',
+  api: 'an API route',
+};
+
+/** A server action names its function, not the page it was called from. */
+function ActionCell({ r }: { r: CapturedRequest }) {
+  const action = r.serverAction;
+  let where = r.url;
+  try {
+    const u = new URL(r.url);
+    where = u.host + u.pathname;
+  } catch {
+    /* keep the raw url */
+  }
+  return (
+    <>
+      <span className="name" title={action?.file ?? `action ${action?.id}`}>
+        {action?.name ?? `${action?.id.slice(0, 10)}…`}
+      </span>
+      <span className="host">{where}</span>
+    </>
+  );
 }
 
 /** Row height in px; every row is one line (see `tbody tr` in styles.css). */
@@ -158,6 +190,11 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
                       {collapsed.has(r.id) ? '▸' : '▾'}
                     </button>
                   )}
+                  {r.kind && (
+                    <span className={`tag kind ${r.kind}`} title={KIND_TITLE[r.kind]}>
+                      {r.kind === 'navigation' ? 'nav' : r.kind}
+                    </span>
+                  )}
                   {r.mocked && <span className="tag mock">mock</span>}
                   {r.gqlErrors && (
                     <span className="tag gqlerr" title={r.gqlErrors.join('\n')}>
@@ -174,7 +211,7 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
                       {calls.length} call{calls.length === 1 ? '' : 's'}
                     </span>
                   )}
-                  <UrlCell url={r.url} gql={r.gql} />
+                  {r.serverAction ? <ActionCell r={r} /> : <UrlCell url={r.url} gql={r.gql} />}
                 </td>
                 <td>
                   <StatusBadge r={r} />

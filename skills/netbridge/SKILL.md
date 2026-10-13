@@ -40,7 +40,7 @@ Reading entries:
 
 - `state` is `pending`, `done` or `error`. An `error` entry carries `error` (the network failure, with its cause such as `ECONNREFUSED`); a `done` entry carries `status`.
 - `source`: `fetch`, `http` (the `http`/`https` modules: axios, got, node-fetch…), `undici`, `replay` (a resend), or `inbound` (a request **your server received**).
-- `parentId` links a call to the `inbound` entry it was made for. `GET /api/requests?parent=<inbound id>` lists one page render's calls. An inbound request appears only once it made an outbound call.
+- `parentId` links a call to the `inbound` entry it was made for. Summaries of inbound entries carry `kind` (`page`, `navigation`, `prefetch`, `action`, `api`), and a Next.js server action carries `serverAction: { id, name, file }`. `GET /api/requests?parent=<inbound id>` lists one page render's calls. An inbound request appears only once it made an outbound call.
 - Bodies are decoded (gzip/br/deflate). Binary bodies are base64 (`reqBodyEncoding` / `resBodyEncoding: "base64"`); bodies over the cap set `reqBodyTruncated` / `resBodyTruncated`. Redacted header values read `«redacted»`.
 - `mocked` names the mock rule that answered the call instead of the backend.
 - `ttfbMs` is the wait until the response headers came in; `durationMs` runs until the body was done. A long `ttfbMs` points at the server, a long gap after it at a big or streamed body.

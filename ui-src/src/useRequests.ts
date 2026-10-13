@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { DEFAULT_BUFFER_LIMIT, MAX_ENTRIES, entrySize, graphqlFields, mergeEvent } from '../../src/protocol';
+import { DEFAULT_BUFFER_LIMIT, MAX_ENTRIES, entrySize, graphqlFields, inboundKind, mergeEvent } from '../../src/protocol';
 import type { MockRule } from '../../src/protocol';
 import type { CapturedRequest, WireEvent } from './types';
 
@@ -9,12 +9,13 @@ import type { CapturedRequest, WireEvent } from './types';
  * the client map (and the un-virtualized table) without bound. The oldest
  * rows, which a fresh snapshot would also have dropped, go first.
  */
-/** Fill in what the UI derives from an entry's bodies (GraphQL operations, errors). */
+/** Fill in what the UI derives from an entry (GraphQL operations and errors, the kind of an inbound request). */
 function derive(r: CapturedRequest): void {
   if (!r.method || !r.url) return;
   const { gql, gqlErrors } = graphqlFields(r);
   r.gql = gql;
   r.gqlErrors = gqlErrors;
+  r.kind = inboundKind(r);
 }
 
 function trim(map: Map<string, CapturedRequest>, limit: number): void {

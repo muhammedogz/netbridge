@@ -157,7 +157,9 @@ function Overlay() {
               onClick={() => setPicked(e.id)}
               title={e.url}
             >
-              <span className={`method ${e.method}`}>{e.method}</span> {pathOf(e.url)}
+              <span className={`method ${e.method}`}>{e.method}</span>{' '}
+              {e.kind && <span className={`tag kind ${e.kind}`}>{e.kind === 'navigation' ? 'nav' : e.kind}</span>}
+              {e.serverAction?.name ? `${e.serverAction.name} · ${pathOf(e.url)}` : pathOf(e.url)}
             </button>
           ))}
           {inbound.length === 0 && <div className="ov-dim">nothing recorded yet</div>}

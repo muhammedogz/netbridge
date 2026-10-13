@@ -247,3 +247,9 @@ pre { background: var(--bg); border: 1px solid var(--border); border-radius: 6px
 .gql-op { margin-bottom: 10px; }
 .gql-name { color: var(--accent); margin-bottom: 4px; }
 .gql-errors { margin: 0; padding-left: 18px; color: var(--red); }
+
+/* inbound request kinds */
+.tag.kind { color: var(--fg-dim); }
+.tag.kind.action { color: var(--green); }
+.tag.kind.navigation, .tag.kind.prefetch { color: var(--purple); }
+.tag.kind.page { color: var(--accent); }

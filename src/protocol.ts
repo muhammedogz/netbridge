@@ -55,7 +55,16 @@ export interface NetbridgeEvent {
   resChunks?: [number, number][];
   /** JWTs in the request headers, decoded at capture (before redaction). */
   reqTokens?: DecodedToken[];
+  /** For an inbound Next.js server action: which one, from the app's build manifest. */
+  serverAction?: ServerAction;
   error?: string;
+}
+
+/** A Next.js server action: its id, and its export name and file when the build manifest has them. */
+export interface ServerAction {
+  id: string;
+  name?: string;
+  file?: string;
 }
 
 /** A JWT found in a header: its JOSE header and claims. Never the signature. */
@@ -131,6 +140,7 @@ const EVENT_FIELDS: readonly (keyof Entry)[] = [
   'ttfbMs',
   'resChunks',
   'reqTokens',
+  'serverAction',
   'error',
 ];
 
@@ -175,6 +185,7 @@ export type EntrySummary = Pick<
   | 'parentId'
   | 'mocked'
   | 'replayOf'
+  | 'serverAction'
 > & {
   resBodySize?: number;
   /** See callKey(). */
@@ -183,6 +194,8 @@ export type EntrySummary = Pick<
   gql?: string[];
   /** Messages of the GraphQL errors in the response, see graphqlErrors(). */
   gqlErrors?: string[];
+  /** What an inbound request was, see inboundKind(). */
+  kind?: InboundKind;
 };
 
 export function summarize(e: Entry): EntrySummary {
@@ -202,6 +215,8 @@ export function summarize(e: Entry): EntrySummary {
     parentId: e.parentId,
     mocked: e.mocked,
     replayOf: e.replayOf,
+    kind: inboundKind(e),
+    serverAction: e.serverAction,
     resBodySize:
       e.resBody == null ? undefined : e.resBodyEncoding === 'base64' ? Math.floor((e.resBody.length * 3) / 4) : e.resBody.length,
     key: callKey(e),
@@ -560,4 +575,27 @@ export function graphqlErrors(e: Pick<Entry, 'resBody' | 'resBodyEncoding'>): st
   } catch {
     return undefined;
   }
+}
+
+// ---------------------------------------------------------------------------
+// What an inbound request was, read from the headers Next.js sends: a full
+// page load, a client-side navigation (an RSC request), a prefetch, or a
+// server action. Other frameworks' requests are a page or an API call.
+// ---------------------------------------------------------------------------
+
+export type InboundKind = 'page' | 'navigation' | 'prefetch' | 'action' | 'api';
+
+export function inboundKind(e: Pick<Entry, 'source' | 'url'> & { reqHeaders?: Record<string, string> }): InboundKind | undefined {
+  if (e.source !== 'inbound') return undefined;
+  const h = e.reqHeaders ?? {};
+  if (h['next-action']) return 'action';
+  if (h['next-router-prefetch'] === '1') return 'prefetch';
+  if (h.rsc === '1' || /[?&]_rsc=/.test(e.url)) return 'navigation';
+  if (h['sec-fetch-dest'] === 'document') return 'page';
+  try {
+    if (new URL(e.url).pathname.startsWith('/api/')) return 'api';
+  } catch {
+    /* not a url */
+  }
+  return undefined;
 }

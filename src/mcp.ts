@@ -93,6 +93,8 @@ function statusText(e: Pick<Entry, 'state' | 'status' | 'error'>): string {
 function line(e: EntrySummary, extra = ''): string {
   const tags = [
     e.source,
+    e.kind ? `kind:${e.kind}` : '',
+    e.serverAction ? `action:${e.serverAction.name ?? e.serverAction.id}${e.serverAction.file ? `@${e.serverAction.file}` : ''}` : '',
     e.gql ? `graphql:${e.gql.join(',')}` : '',
     e.gqlErrors ? `GRAPHQL-ERRORS:${e.gqlErrors.length}` : '',
     e.mocked ? `mocked:${e.mocked}` : '',

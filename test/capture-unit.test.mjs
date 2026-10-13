@@ -11,7 +11,7 @@ import { ROOT } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildUrl } = require(path.join(ROOT, 'dist', 'capture', 'http.js'));
-const { mergeEvent, entrySize, decodeJwt, tokensInHeaders, claimTime, graphqlOperations, graphqlErrors } = require(
+const { mergeEvent, entrySize, decodeJwt, tokensInHeaders, claimTime, graphqlOperations, graphqlErrors, inboundKind } = require(
   path.join(ROOT, 'dist', 'protocol.js')
 );
 const { ChunkTimeline } = require(path.join(ROOT, 'dist', 'capture', 'shared.js'));
@@ -94,6 +94,19 @@ describe('JWTs', () => {
       ]
     );
     assert.equal(tokensInHeaders({ accept: '*/*' }), undefined);
+  });
+});
+
+describe('inboundKind', () => {
+  const inbound = (url, reqHeaders = {}) => ({ source: 'inbound', url, reqHeaders });
+  it('tells Next.js request kinds apart', () => {
+    assert.equal(inboundKind(inbound('http://l/x', { 'next-action': 'id', rsc: '1' })), 'action');
+    assert.equal(inboundKind(inbound('http://l/x', { rsc: '1', 'next-router-prefetch': '1' })), 'prefetch');
+    assert.equal(inboundKind(inbound('http://l/x?_rsc=abc')), 'navigation');
+    assert.equal(inboundKind(inbound('http://l/x', { 'sec-fetch-dest': 'document' })), 'page');
+    assert.equal(inboundKind(inbound('http://l/api/users')), 'api');
+    assert.equal(inboundKind(inbound('http://l/x')), undefined);
+    assert.equal(inboundKind({ source: 'fetch', url: 'http://l/api/x' }), undefined);
   });
 });
 

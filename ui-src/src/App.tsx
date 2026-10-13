@@ -24,7 +24,8 @@ const FILTER_HELP = [
   'space-separated terms, all must match (case-insensitive)',
   'text: url, method, status, headers, bodies',
   '-term: hide what the term matches',
-  'url: host: path: method: status: source: op: match one attribute (op: is a GraphQL operation)',
+  'url: host: path: method: status: source: op: kind: match one attribute',
+  'op: a GraphQL operation; kind: page, navigation, prefetch, action or api',
   'e.g. -host:localhost:4318 method:post status:5xx',
 ].join('\n');
 

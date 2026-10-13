@@ -11,6 +11,7 @@
 import type * as httpType from 'http';
 import { tokensInHeaders } from '../protocol';
 import { type InboundContext, runInbound } from './context';
+import { serverAction } from './next';
 import { config, emit, nextId, sanitizeHeaders, send } from './shared';
 
 const overlay = process.env.NETBRIDGE_OVERLAY === '1';
@@ -45,7 +46,15 @@ function track(req: httpType.IncomingMessage, res: httpType.ServerResponse, prot
     open() {
       if (opened) return;
       opened = true;
-      emit({ ...base, phase: 'start', ts, reqHeaders: sanitizeHeaders(req.headers), reqTokens: tokensInHeaders(req.headers) });
+      const action = req.headers['next-action'];
+      emit({
+        ...base,
+        phase: 'start',
+        ts,
+        reqHeaders: sanitizeHeaders(req.headers),
+        reqTokens: tokensInHeaders(req.headers),
+        serverAction: typeof action === 'string' && action ? serverAction(action) : undefined,
+      });
       // A call made after the response went out (fire-and-forget work).
       if (closed) finish();
     },

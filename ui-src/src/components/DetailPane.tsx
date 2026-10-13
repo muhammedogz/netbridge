@@ -8,6 +8,7 @@ import { CopyMenu } from './CopyMenu';
 import { GraphqlErrors, GraphqlRequest } from './Graphql';
 import { MockEditor, draftFromEntry } from './Mocks';
 import { ResendDialog } from './ResendDialog';
+import { KIND_TITLE } from './RequestTable';
 import { StatusBadge } from './StatusBadge';
 import { SseBody, TimingSection } from './Stream';
 import { TokensSection, fromHeaders, hasStaleToken, tokensInBody } from './Tokens';
@@ -255,6 +256,17 @@ export function DetailPane({
             {repeats && (
               <span className="badge dup" title="same method, url and body under the same inbound request">
                 ran {repeats}× for this request
+              </span>
+            )}
+            {r.kind && (
+              <span className="badge" title={KIND_TITLE[r.kind]}>
+                {r.kind}
+              </span>
+            )}
+            {r.serverAction && (
+              <span className="badge gql" title={`action id ${r.serverAction.id}`}>
+                server action {r.serverAction.name ?? r.serverAction.id}
+                {r.serverAction.file ? ` · ${r.serverAction.file}` : ''}
               </span>
             )}
             {r.gql && <span className="badge gql">GraphQL {r.gql.join(', ')}</span>}

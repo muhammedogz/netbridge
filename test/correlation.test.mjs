@@ -6,6 +6,8 @@
  */
 import { after, before, describe, it } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { FIXTURES, runCli, settled, startOrigin, waitFor } from './helpers.mjs';
 
@@ -13,12 +15,20 @@ let origin;
 let nb;
 let app;
 
+// A Next.js build manifest naming one server action, where the dev server keeps it.
+const appCwd = fs.mkdtempSync(path.join(os.tmpdir(), 'nb-next-'));
+fs.mkdirSync(path.join(appCwd, '.next', 'dev', 'server'), { recursive: true });
+fs.writeFileSync(
+  path.join(appCwd, '.next', 'dev', 'server', 'server-reference-manifest.json'),
+  JSON.stringify({ node: { a1b2c3: { workers: {}, exportedName: 'saveOrder', filename: 'app/orders/actions.ts' } } })
+);
+
 before(async () => {
   origin = await startOrigin();
   nb = await runCli({
     args: ['--overlay'],
     command: [process.execPath, path.join(FIXTURES, 'app.mjs')],
-    env: { TARGET_ORIGIN: origin.url },
+    env: { TARGET_ORIGIN: origin.url, APP_CWD: appCwd },
   });
   const health = await waitFor(
     async () => {
@@ -33,6 +43,7 @@ before(async () => {
 after(async () => {
   await nb?.stop();
   await origin?.close();
+  fs.rmSync(appCwd, { recursive: true, force: true });
 });
 
 const inboundFor = (list, suffix) => list.find((e) => e.source === 'inbound' && e.url.endsWith(suffix));
@@ -89,6 +100,21 @@ describe('inbound correlation', () => {
     await fetch(`${app}/missing`);
     const all = await nb.requests();
     assert.equal(all.some((e) => e.url.endsWith('/missing')), false);
+  });
+});
+
+describe('kinds of inbound requests', () => {
+  it('names a server action from the build manifest', async () => {
+    const res = await fetch(`${app}/action`, { method: 'POST', headers: { 'next-action': 'a1b2c3', accept: 'text/x-component' } });
+    assert.equal(await res.text(), 'action done');
+    const list = await nb.waitForRequests((l) => l.some((e) => e.url.endsWith('/action') && settled(e)), 'the action');
+    const action = list.find((e) => e.url.endsWith('/action'));
+    assert.deepEqual(action.serverAction, { id: 'a1b2c3', name: 'saveOrder', file: 'app/orders/actions.ts' });
+    const [summary] = await (await fetch(`${nb.base}/api/requests?summary=1&source=inbound`)).json().then((l) =>
+      l.filter((e) => e.id === action.id)
+    );
+    assert.equal(summary.kind, 'action');
+    assert.equal(summary.serverAction.name, 'saveOrder');
   });
 });
 

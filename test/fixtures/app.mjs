@@ -4,6 +4,8 @@ import http from 'http';
 import { createRequire } from 'module';
 
 const target = process.env.TARGET_ORIGIN;
+// Where a Next.js build manifest would be (server action names).
+if (process.env.APP_CWD) process.chdir(process.env.APP_CWD);
 const require = createRequire(import.meta.url);
 
 function httpGet(url) {
@@ -61,6 +63,11 @@ const routes = {
         .on('error', reject);
     });
     return 'tokens done';
+  },
+  // Stands in for a server action: Next.js answers a POST carrying next-action.
+  async '/action'() {
+    await fetchText(`${target}/json?for=action`);
+    return 'action done';
   },
   // A body that trickles in over ~1s: shows up early, status first.
   async '/stream'() {

@@ -77,6 +77,8 @@ Click the inbound row to open its **Calls** tab. It draws what the request calle
 - **Sequential steps** are runs of calls that overlap in time. Five calls in five steps waited on each other, which is the classic Server Component waterfall. Five calls in one step ran in parallel.
 - **Repeated calls** (`×2`) are the same method, url and body more than once for one request. That usually means a missing `cache()` or dedupe. The body counts, so different GraphQL queries to one endpoint aren't flagged.
 
+Inbound rows say what the request was, from the headers Next.js sends: `page` for a full page load, `nav` for a client-side navigation (the RSC payload of the next page), `prefetch`, `action` for a server action, and `api` for a route under `/api/`. A server action shows the function it ran, `saveOrder` rather than `POST /`, with its file in the tooltip; netbridge looks the action id up in the build manifest the dev server writes under `.next`.
+
 A call's detail pane links back to its request ("for GET /dashboard"), and the `▸` caret folds a request's calls away. If you'd rather have the old view, one row per outbound call in arrival order, pick **flat list** in the settings menu. The flat list leaves inbound requests out unless the `inbound` source chip is on.
 
 There's nothing to set up. The preload follows each request handler through `await`s, timers and promise chains with `AsyncLocalStorage`, the same mechanism Next.js uses for `headers()` and `cookies()`. An inbound request is recorded only once it makes an outbound call, which keeps static files and HMR pings out of the list. Calls made outside any request (startup, cron jobs) show on their own.
@@ -156,6 +158,7 @@ The filter box works like the Chrome DevTools network filter. Terms separated by
 | `status:404` `status:4xx` | got that status (`x` is any digit). `status:error` and `status:pending` match failed and in-flight requests |
 | `source:http` | came from that source: `fetch`, `http`, `undici`, `inbound` (requests your server received) or `replay` |
 | `op:GetUser` `op:mutation` | sent a GraphQL operation with that name or type. `operation:` works too |
+| `kind:action` | inbound requests of that kind: `page`, `navigation`, `prefetch`, `action` or `api` |
 
 A term with an unknown key is plain text, so `localhost:4318` needs no escaping. While a filter is active the counter next to the box reads `shown/total`. Hover it to see how many requests are hidden.
 

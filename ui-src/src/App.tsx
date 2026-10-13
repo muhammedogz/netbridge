@@ -235,7 +235,6 @@ export function App({ config }: { config: ViewConfig }) {
           onSelect={(id) => setSelectedId(id === selectedId ? null : id)}
           collapsed={collapsed}
           onToggleCollapsed={(id) => setCollapsed((s) => toggled(s, id))}
-          compact={selected !== null}
         />
         <DetailPane
           r={selected}

@@ -48,15 +48,13 @@ interface Props {
   onSelect: (id: string) => void;
   collapsed: ReadonlySet<string>;
   onToggleCollapsed: (id: string) => void;
-  /** Detail pane is open: keep only the columns that identify a request. */
-  compact: boolean;
 }
 
 /**
  * The request list. Only the rows in view (plus OVERSCAN) are in the DOM, so
  * a full buffer of thousands of requests scrolls and updates like a short one.
  */
-export function RequestTable({ rows, total, tree, selectedId, onSelect, collapsed, onToggleCollapsed, compact }: Props) {
+export function RequestTable({ rows, total, tree, selectedId, onSelect, collapsed, onToggleCollapsed }: Props) {
   const listRef = useRef<HTMLDivElement>(null);
   const stickRef = useRef(true);
   const [view, setView] = useState({ top: 0, height: 800 });
@@ -107,16 +105,16 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
         setView({ top: el.scrollTop, height: el.clientHeight });
       }}
     >
-      <table className={compact ? 'compact' : undefined}>
+      <table>
         <thead>
           <tr>
-            <th className="opt">#</th>
-            <th className="opt">method</th>
+            <th className="c-seq">#</th>
+            <th className="c-method">method</th>
             <th>name</th>
             <th>status</th>
-            <th className="opt">time</th>
-            <th className="opt">size</th>
-            <th className="opt">via</th>
+            <th className="c-time">time</th>
+            <th className="c-size">size</th>
+            <th className="c-via">via</th>
           </tr>
         </thead>
         <tbody>
@@ -130,8 +128,8 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
               .join(' ');
             return (
               <tr key={r.id} className={cls} onClick={() => onSelect(r.id)}>
-                <td className="seq opt">{r.seq}</td>
-                <td className={`method opt ${r.method}`}>{r.method}</td>
+                <td className="seq c-seq">{r.seq}</td>
+                <td className={`method c-method ${r.method}`}>{r.method}</td>
                 <td className="url" title={r.url}>
                   {inbound && (
                     <button
@@ -162,9 +160,9 @@ export function RequestTable({ rows, total, tree, selectedId, onSelect, collapse
                 <td>
                   <StatusBadge r={r} />
                 </td>
-                <td className="opt">{r.durationMs != null ? `${r.durationMs} ms` : ''}</td>
-                <td className="opt">{fmtSize(r.resBody, r.resBodyEncoding)}</td>
-                <td className="src opt">
+                <td className="c-time">{r.durationMs != null ? `${r.durationMs} ms` : ''}</td>
+                <td className="c-size">{fmtSize(r.resBody, r.resBodyEncoding)}</td>
+                <td className="src c-via">
                   {r.source || ''}
                   {r.pid ? <span title="pid"> #{r.pid}</span> : null}
                 </td>

@@ -43,7 +43,10 @@ before(async () => {
 after(async () => {
   await nb?.stop();
   await origin?.close();
-  fs.rmSync(appCwd, { recursive: true, force: true });
+  // On Windows the app's process can hold its cwd for a moment after stop.
+  try {
+    fs.rmSync(appCwd, { recursive: true, force: true, maxRetries: 10, retryDelay: 200 });
+  } catch {}
 });
 
 const inboundFor = (list, suffix) => list.find((e) => e.source === 'inbound' && e.url.endsWith(suffix));

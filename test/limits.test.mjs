@@ -60,7 +60,13 @@ describe('buffer budget', () => {
       await doneAll(nb);
       const chars = (l) => l.reduce((n, r) => n + (r.resBody?.length ?? 0), 0);
       // Settled and filled up to near the budget: the last events arrived.
-      const list = await nb.waitForRequests((l) => l.every(settled) && chars(l) >= 700_000);
+      // /api/requests streams the list and lets ingest run between entries, so
+      // a read taken while events still land can mix evicted and new entries;
+      // wait for one within budget. Broken eviction never gets there.
+      const list = await nb.waitForRequests(
+        (l) => l.every(settled) && chars(l) >= 700_000 && chars(l) <= 1_000_000,
+        'a settled list within the budget'
+      );
       const bodyChars = chars(list);
       assert.ok(list.length < 30, `older entries evicted (kept ${list.length})`);
       assert.ok(list.length >= 5, `recent entries kept (kept ${list.length})`);

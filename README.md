@@ -53,7 +53,7 @@ The table shows method, url, status, timing, size and the process that made each
 
 The filter box matches url, method, status, headers and bodies. Terms separated by spaces must all match. A leading `-` hides what a term matches, and keyed terms like `host:` look at one attribute (see [Filtering](#filtering)). Under the box, chips toggle methods, status classes (`2xx` `3xx` `4xx` `5xx` `error` `pending`) and sources (`fetch`, `http`, `undici`, `inbound`, `replay`). Chips in one group are ORed and everything else is ANDed, so clicking `4xx` and `5xx` leaves only the failures. The `time` boxes take `500`, `500ms`, `1s` or `1.5s`. Fill in min, max or both: max `1s` alone shows everything up to a second, min `500ms` alone shows only the slow calls.
 
-Click a row for the detail pane with headers, pretty-printed bodies, and copy and download buttons per body. `Esc` closes it. If you're typing in the filter box, the first `Esc` only leaves the box.
+Click a row for the detail pane with headers, pretty-printed bodies, and copy and download buttons per body. `Esc` closes it. If you're typing in the filter box, the first `Esc` only leaves the box. The keyboard works too: `↑` and `↓` (or `k` and `j`) walk the list with the pane following, and `/` jumps to the filter box.
 
 "copy request" copies the selected request as Markdown, JSON, cURL, a `fetch` call, Python `requests` or an AI prompt (see [For AI agents](#for-ai-agents)). It also turns the call into a test double: an MSW handler or a nock scope that answers with the captured status, headers and body, ready to paste into a test. "export" downloads the session as raw JSON or as HAR 1.2, which opens in Chrome DevTools, Insomnia and other HAR viewers.
 

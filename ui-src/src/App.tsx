@@ -27,6 +27,7 @@ const FILTER_HELP = [
   '-term: hide what the term matches',
   'url: host: path: method: status: source: op: kind: match one attribute',
   'op: a GraphQL operation; kind: page, navigation, prefetch, action or api',
+  'keys: / focuses this box; ↑ ↓ (or k j) walk the list; Esc closes the detail pane',
   'e.g. -host:localhost:4318 method:post status:5xx',
 ].join('\n');
 
@@ -122,6 +123,32 @@ export function App({ config }: { config: ViewConfig }) {
     document.addEventListener('keydown', onKey);
     return () => document.removeEventListener('keydown', onKey);
   }, []);
+
+  // Keyboard: ↑/↓ (or k/j) walk the list, / jumps to the filter. Typing in
+  // a field and open dialogs keep their keys.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t?.closest('input, textarea, select, [contenteditable="true"]')) return;
+      if (document.querySelector('.resend-overlay, .copymenu-pop')) return;
+      if (e.key === '/') {
+        e.preventDefault();
+        document.getElementById('filter')?.focus();
+        return;
+      }
+      const step = e.key === 'ArrowDown' || e.key === 'j' ? 1 : e.key === 'ArrowUp' || e.key === 'k' ? -1 : 0;
+      if (!step || rows.length === 0) return;
+      e.preventDefault();
+      setSelectedId((cur) => {
+        const at = cur ? rows.findIndex((row) => row.r.id === cur) : -1;
+        const next = at < 0 ? (step > 0 ? 0 : rows.length - 1) : Math.min(rows.length - 1, Math.max(0, at + step));
+        return rows[next].r.id;
+      });
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [rows]);
 
   const byId = useMemo(() => new Map(requests.map((r) => [r.id, r])), [requests]);
   const selected = selectedId ? (byId.get(selectedId) ?? null) : null;

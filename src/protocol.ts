@@ -599,3 +599,67 @@ export function inboundKind(e: Pick<Entry, 'source' | 'url'> & { reqHeaders?: Re
   }
   return undefined;
 }
+
+// ---------------------------------------------------------------------------
+// Per-host numbers: which backend is slow, or failing.
+// ---------------------------------------------------------------------------
+
+export interface HostStats {
+  host: string;
+  calls: number;
+  /** Network errors plus 4xx and 5xx answers. */
+  failed: number;
+  pending: number;
+  /** Durations of the settled calls, nearest rank. */
+  p50?: number;
+  p95?: number;
+  max?: number;
+  /** Response bytes captured (decoded, so not always what the wire carried). */
+  bytes: number;
+}
+
+type StatsInput = Pick<Entry, 'source' | 'url' | 'state' | 'status' | 'durationMs'> & {
+  resBody?: string;
+  resBodyEncoding?: BodyEncoding;
+  resBodySize?: number;
+};
+
+function hostOf(url: string): string {
+  try {
+    return new URL(url).host;
+  } catch {
+    return url;
+  }
+}
+
+function rank(sorted: number[], p: number): number | undefined {
+  if (!sorted.length) return undefined;
+  return sorted[Math.min(sorted.length - 1, Math.ceil((p / 100) * sorted.length) - 1)];
+}
+
+/** Outbound calls (not inbound requests or replays) grouped by host, busiest first. */
+export function hostStats(entries: readonly StatsInput[]): HostStats[] {
+  const groups = new Map<string, { stats: HostStats; durations: number[] }>();
+  for (const e of entries) {
+    if (e.source === 'inbound' || e.source === 'replay') continue;
+    const host = hostOf(e.url);
+    let g = groups.get(host);
+    if (!g) {
+      g = { stats: { host, calls: 0, failed: 0, pending: 0, bytes: 0 }, durations: [] };
+      groups.set(host, g);
+    }
+    g.stats.calls += 1;
+    if (e.state === 'pending') g.stats.pending += 1;
+    else if (e.state === 'error' || (e.status ?? 0) >= 400) g.stats.failed += 1;
+    if (e.state !== 'pending' && e.durationMs != null) g.durations.push(e.durationMs);
+    g.stats.bytes +=
+      e.resBodySize ??
+      (e.resBody == null ? 0 : e.resBodyEncoding === 'base64' ? Math.floor((e.resBody.length * 3) / 4) : e.resBody.length);
+  }
+  return [...groups.values()]
+    .map(({ stats, durations }) => {
+      const sorted = durations.sort((a, b) => a - b);
+      return { ...stats, p50: rank(sorted, 50), p95: rank(sorted, 95), max: sorted[sorted.length - 1] };
+    })
+    .sort((a, b) => b.calls - a.calls || a.host.localeCompare(b.host));
+}

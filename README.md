@@ -57,6 +57,8 @@ Click a row for the detail pane with headers, pretty-printed bodies, and copy an
 
 "copy request" copies the selected request as Markdown, JSON, cURL, a `fetch` call, Python `requests` or an AI prompt (see [For AI agents](#for-ai-agents)). It also turns the call into a test double: an MSW handler or a nock scope that answers with the captured status, headers and body, ready to paste into a test. "export" downloads the session as raw JSON or as HAR 1.2, which opens in Chrome DevTools, Insomnia and other HAR viewers.
 
+**hosts** sums up every backend the app called: calls, failures, p50, p95 and max duration, and bytes received, busiest first. It answers "which service is slow" at a glance; click a host to filter the list to it.
+
 The header also holds **mocks** (see [Mocking backends](#mocking-backends)), **mcp / api** (see [For AI agents](#for-ai-agents)), a theme switch (light, dark, or follow the system) and a settings menu. The settings menu picks the list layout, grouped or flat, and remembers it in the browser.
 
 The UI loads nothing from the internet and is served from `127.0.0.1`. It keeps only the rows in view in the DOM, so a buffer of thousands of requests scrolls as fast as a short one.
@@ -264,6 +266,7 @@ claude mcp add netbridge -- npx -y netbridge mcp
 | Tool | Does |
 |---|---|
 | `list_requests` | lists captures, filtered by url, method, status, source, or the inbound request that made the calls |
+| `list_hosts` | calls, failures and p50/p95/max duration per backend host |
 | `get_request` | one request with headers and decoded bodies |
 | `get_call_tree` | one page render's calls with timing, repeats and sequential steps |
 | `resend_request` | re-sends a capture, optionally edited |

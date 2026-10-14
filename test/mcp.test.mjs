@@ -81,7 +81,7 @@ describe('netbridge mcp', () => {
   it('lists its tools', async () => {
     const msg = await mcp.request('tools/list', {});
     const names = msg.result.tools.map((t) => t.name);
-    for (const name of ['list_requests', 'get_request', 'get_call_tree', 'resend_request', 'set_mock', 'list_mocks', 'delete_mock', 'clear_requests']) {
+    for (const name of ['list_requests', 'list_hosts', 'get_request', 'get_call_tree', 'resend_request', 'set_mock', 'list_mocks', 'delete_mock', 'clear_requests']) {
       assert.ok(names.includes(name), name);
     }
     for (const t of msg.result.tools) assert.equal(t.inputSchema.type, 'object');
@@ -101,6 +101,12 @@ describe('netbridge mcp', () => {
     const { text } = await mcp.tool('get_call_tree');
     assert.match(text, /3 outbound calls, 3 sequential step\(s\), 2 calls repeat 1 distinct request\(s\)/);
     assert.equal((text.match(/DUPLICATE x2/g) || []).length, 2);
+  });
+
+  it('sums up calls per host', async () => {
+    const { text } = await mcp.tool('list_hosts');
+    // /page made three calls to the origin; the inbound request itself isn't one.
+    assert.match(text, /^127\.0\.0\.1:\d+ {2}3 calls {2}p50 \d+ms, p95 \d+ms, max \d+ms {2}\d+ B received$/m);
   });
 
   it('shows one request with headers and bodies', async () => {

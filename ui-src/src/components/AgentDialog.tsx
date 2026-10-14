@@ -10,6 +10,7 @@ const MCP_JSON = `{
 
 const MCP_TOOLS = [
   'list_requests',
+  'list_hosts',
   'get_request',
   'get_call_tree',
   'resend_request',

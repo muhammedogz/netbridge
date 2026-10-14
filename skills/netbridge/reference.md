@@ -86,6 +86,7 @@ Other clients take the usual config block:
 
 | Tool | Does |
 |---|---|
+| `list_hosts` | calls, failures, p50/p95/max duration and bytes per backend host: which service is slow or failing |
 | `list_requests` | summaries, filtered by `url` (substring), `method`, `status` (`404`, `4xx`, `error`, `pending`), `source`, `parent`; newest `limit` (default 50) |
 | `get_request` | one entry with headers and decoded bodies (`maxBodyChars` per body) |
 | `get_call_tree` | one inbound request's calls as a timeline with repeats and sequential steps; the latest one without `id` |

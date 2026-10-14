@@ -7,6 +7,7 @@ import { DetailPane } from './components/DetailPane';
 import { ExportMenu, type ExportKind } from './components/ExportMenu';
 import { FilterBar } from './components/FilterBar';
 import { AgentDialog } from './components/AgentDialog';
+import { HostsDialog } from './components/HostsDialog';
 import { MocksDialog } from './components/Mocks';
 import { SettingsMenu } from './components/SettingsMenu';
 import { buildTree, toRows } from './tree';
@@ -61,6 +62,7 @@ export function App({ config }: { config: ViewConfig }) {
   const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
   const [showMocks, setShowMocks] = useState(false);
   const [showAgent, setShowAgent] = useState(false);
+  const [showHosts, setShowHosts] = useState(false);
   const [filterText, setFilterText] = useFilterText(config);
   const [methods, setMethods] = useState<ReadonlySet<string>>(new Set());
   const [statuses, setStatuses] = useState<ReadonlySet<StatusClass>>(new Set());
@@ -175,6 +177,9 @@ export function App({ config }: { config: ViewConfig }) {
         <button type="button" title="connect an AI agent: the MCP server or the HTTP API" onClick={() => setShowAgent(true)}>
           mcp / api
         </button>
+        <button type="button" title="calls, failures and timing per backend" onClick={() => setShowHosts(true)}>
+          hosts
+        </button>
         <button
           type="button"
           className={enabledMocks ? 'on' : ''}
@@ -247,6 +252,18 @@ export function App({ config }: { config: ViewConfig }) {
       </main>
       {showMocks && <MocksDialog rules={mocks} onClose={() => setShowMocks(false)} />}
       {showAgent && <AgentDialog onClose={() => setShowAgent(false)} />}
+      {showHosts && (
+        <HostsDialog
+          requests={requests}
+          onClose={() => setShowHosts(false)}
+          onPick={(host) => {
+            setShowHosts(false);
+            // Swap any host: term for this one; keep the rest of the filter.
+            const rest = filterText.split(/\s+/).filter((t) => t && !/^-?(host|domain):/i.test(t));
+            setFilterText([...rest, `host:${host}`].join(' '));
+          }}
+        />
+      )}
     </>
   );
 }

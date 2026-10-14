@@ -11,7 +11,7 @@ import { ROOT } from './helpers.mjs';
 
 const require = createRequire(import.meta.url);
 const { buildUrl } = require(path.join(ROOT, 'dist', 'capture', 'http.js'));
-const { mergeEvent, entrySize, decodeJwt, tokensInHeaders, claimTime, graphqlOperations, graphqlErrors, inboundKind } = require(
+const { mergeEvent, entrySize, decodeJwt, tokensInHeaders, claimTime, graphqlOperations, graphqlErrors, inboundKind, hostStats } = require(
   path.join(ROOT, 'dist', 'protocol.js')
 );
 const { ChunkTimeline } = require(path.join(ROOT, 'dist', 'capture', 'shared.js'));
@@ -140,6 +140,26 @@ describe('GraphQL', () => {
   it('reads the errors a 200 hides', () => {
     assert.deepEqual(graphqlErrors({ resBody: '{"data":null,"errors":[{"message":"denied"},{"code":1}]}' }), ['denied', '{"code":1}']);
     assert.equal(graphqlErrors({ resBody: '{"data":{"errors":1}}' }), undefined);
+  });
+});
+
+describe('hostStats', () => {
+  it('counts calls, failures and percentiles per host, busiest first', () => {
+    const call = (url, durationMs, extra = {}) => ({ source: 'fetch', url, state: 'done', status: 200, durationMs, ...extra });
+    const stats = hostStats([
+      ...[10, 20, 30, 40, 1000].map((d) => call('https://a.test/x', d)),
+      call('https://a.test/y', 5, { status: 503 }),
+      call('https://b.test/', undefined, { state: 'error', status: undefined, durationMs: 7 }),
+      call('https://b.test/', undefined, { state: 'pending', status: undefined }),
+      call('http://localhost:3000/', 900, { source: 'inbound' }),
+    ]);
+    assert.deepEqual(
+      stats.map((s) => [s.host, s.calls, s.failed, s.pending, s.p50, s.p95, s.max]),
+      [
+        ['a.test', 6, 1, 0, 20, 1000, 1000],
+        ['b.test', 2, 1, 1, 7, 7, 7],
+      ]
+    );
   });
 });
 

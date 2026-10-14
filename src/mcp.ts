@@ -7,7 +7,7 @@
  *   claude mcp add netbridge -- npx -y netbridge mcp
  */
 import * as readline from 'readline';
-import { callSteps, claimTime, duplicateCounts, startedAt } from './protocol';
+import { callSteps, claimTime, duplicateCounts, hostStats, startedAt } from './protocol';
 import type { Entry, EntrySummary, Health, MockRule } from './protocol';
 import { packageVersion } from './version';
 
@@ -256,6 +256,30 @@ const tools: Tool[] = [
       if (total === 0) return `${note}no matching requests`;
       const head = total > list.length ? `showing the newest ${list.length} of ${total}\n` : '';
       return note + head + list.map((e) => line(e)).join('\n');
+    },
+  },
+  {
+    name: 'list_hosts',
+    description:
+      'Outbound calls per backend host: count, failures (network errors, 4xx, 5xx), p50/p95/max duration and bytes received, busiest first. Shows which backend is slow or failing.',
+    inputSchema: { type: 'object', properties: { ...PORT_PROP } },
+    async run(args) {
+      const { base, note } = await collector(args);
+      const stats = hostStats(await api<EntrySummary[]>(base, '/api/requests?summary=1'));
+      if (stats.length === 0) return `${note}no outbound calls captured yet`;
+      const rows = stats.map((h) =>
+        [
+          h.host,
+          `${h.calls} calls`,
+          h.failed ? `${h.failed} FAILED` : '',
+          h.pending ? `${h.pending} running` : '',
+          h.p50 != null ? `p50 ${h.p50}ms, p95 ${h.p95}ms, max ${h.max}ms` : '',
+          `${h.bytes} B received`,
+        ]
+          .filter(Boolean)
+          .join('  ')
+      );
+      return note + rows.join('\n');
     },
   },
   {
